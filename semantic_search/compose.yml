@@ -1,0 +1,77 @@
+
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    environment:
+      - MEILI_ENV=production
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    volumes:
+      - ./data/indexes/meili:/meili_data
+    ports:
+      - "7700:7700"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7700/health"] 
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./data/indexes/qdrant:/qdrant/storage
+
+  api:
+    build:
+      context: ./api
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - QDRANT_URL=http://qdrant:6333
+      - INDEX_NAME=docs
+      - EMBED_MODEL=all-MiniLM-L6-v2
+      - CORS_ORIGINS=http://localhost:5173
+      - TOP_K=5
+      - RRF_K=60
+      - MIN_SCORE_THRESHOLD=0.01
+      - SEARCH_MULTIPLIER=3
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  ingestor:
+    build:
+      context: ./ingest
+    environment:
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - INDEX_NAME=docs
+      - DOCS_DIR=/workdir/data/docs
+      - CHUNK_SIZE=800
+      - CHUNK_OVERLAP=200
+      - QDRANT_URL=http://qdrant:6333
+      - EMBED_MODEL=all-MiniLM-L6-v2
+    volumes:
+      - ./:/workdir
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command: ["python", "ingest_hybrid.py"]
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api

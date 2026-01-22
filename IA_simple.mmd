@@ -1,0 +1,89 @@
+flowchart TD
+    %% --- Matériel sous-jacent ---
+    subgraph Hardware [Infrastructure Physique - Serveur Unique]
+        GPU[GPU: NVIDIA L40S - 48GB VRAM]
+        Disk[Stockage: NVMe RAID]
+    end
+
+    %% --- Zone de Stockage de Fichiers ---
+    subgraph FileSystem [Stockage Local / NAS]
+        Files[Documents Bruts<br/>PDF, XLSX, TIF, PPTX, DOCX]
+        Watcher[File System Watcher<br/>fsnotify / watchdog]
+    end
+
+    %% --- Pipeline d'Ingestion (Docker / RAGFlow) ---
+    subgraph Ingestion [Pipeline ETL & OCR Asynchrone]
+        Queue[Message Queue<br/>Redis / RabbitMQ]
+        Router{Routeur de Type}
+        
+        %% Branche 1 : Documents Structurés
+        ParserXLS[Table Parser<br/>Deep Doc Understanding<br/>Preserve Row/Col Context]
+        
+        %% Branche 2 : Documents Visuels
+        OCR[Moteur OCR / Vision<br/>Tesseract ou ViT<br/>Extraction Texte + Bounding Box]
+        
+        %% Branche 3 : Documents Textuels
+        ParserPDF[Layout Analysis<br/>Détection Titres/Paragraphes]
+
+        Chunker[Smart Chunker<br/>Template-based pour Excel<br/>Overlap pour Texte]
+        
+        EmbedModel[Embedding Model<br/>Local Encoder]
+    end
+
+    %% --- Base de Données Vectorielle ---
+    subgraph Storage [Base Vectorielle Hybride - Qdrant/Elastic]
+        VectorDB[Index HNSW + Inverted Index]
+        
+        Vectors[(Dense Vectors<br/>Sémantique)]
+        Keywords[(Sparse Vectors<br/>Mots-clés Exacts)]
+        MetaData[(Métadonnées<br/>Source, Page, Droits)]
+    end
+
+    %% --- Moteur de Recherche & Inférence ---
+    subgraph Serving [Moteur de Recherche & LLM]
+        User([Requête Utilisateur])
+        
+        QueryEmbed[Query Encoder]
+        
+        HybridSearch{Recherche Hybride}
+        RRF[Reranking & Fusion<br/>Reciprocal Rank Fusion]
+        
+        Context[Construction du Contexte<br/>Top-K Chunks]
+        
+        LLMEngine[Moteur d'Inférence: vLLM<br/>PagedAttention & Continuous Batching]
+        Model[Modèle: Mixtral 8x7B<br/>Quantization INT4]
+    end
+
+    %% --- Flux de Données ---
+    
+    %% Flux Ingestion
+    Files --> Watcher
+    Watcher -- "Event: New File" --> Queue
+    Queue --> Router
+    
+    Router -- "*.xlsx, .csv" --> ParserXLS
+    Router -- "*.tif, .png, .jpg" --> OCR
+    Router -- "*.pdf, .docx" --> ParserPDF
+    ParserPDF -. "Si Scan détecté" .-> OCR
+    
+    ParserXLS & OCR & ParserPDF --> Chunker
+    Chunker -- "Texte brut + Métadonnées" --> EmbedModel
+    EmbedModel -- "Vecteurs (768/1024 dim)" --> VectorDB
+    VectorDB --- Vectors & Keywords & MetaData
+
+    %% Flux Recherche
+    User --> QueryEmbed
+    QueryEmbed --> HybridSearch
+    
+    Vectors -.-> HybridSearch
+    Keywords -.-> HybridSearch
+    
+    HybridSearch -- "Candidats bruts" --> RRF
+    RRF -- "Top 5 Chunks pertinents" --> Context
+    Context --> LLMEngine
+    LLMEngine --> User
+
+    %% Lien Hardware
+    LLMEngine -.-> GPU
+    EmbedModel -.-> GPU
+    VectorDB -.-> Disk

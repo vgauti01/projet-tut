@@ -1,0 +1,9 @@
+﻿--extra-index-url https://download.pytorch.org/whl/cpu
+
+pymupdf==1.26.7
+requests==2.32.5
+tqdm==4.67.1
+qdrant-client==1.12.1
+torch==2.10.0+cpu
+sentence-transformers==5.2.0
+numpy
