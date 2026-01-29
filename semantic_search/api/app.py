@@ -7,9 +7,9 @@ import numpy as np
 import json
 from datetime import datetime
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from config import (
-    MEILI_URL, MEILI_MASTER_KEY, QDRANT_URL, INDEX_NAME, TOP_K, EMBED_MODEL,
+    MEILI_URL, MEILI_MASTER_KEY, QDRANT_URL, INDEX_NAME, TOP_K, EMBED_MODEL, RERANK_MODEL,
     CORS_ORIGINS, RRF_K, MIN_SCORE_THRESHOLD, SEARCH_MULTIPLIER
 )
 from utils import format_answer, extract_terms, reciprocal_rank_fusion
@@ -25,8 +25,10 @@ app.add_middleware(
 )
 
 # Load model once at startup
-print(f"Loading model {EMBED_MODEL}...")
+print(f"Loading embedding model {EMBED_MODEL}...")
 model = SentenceTransformer(EMBED_MODEL)
+print(f"Loading rerank model {RERANK_MODEL}...")
+cross_encoder = CrossEncoder(RERANK_MODEL)
 qdrant_client = QdrantClient(url=QDRANT_URL)
 
 class AskRequest(BaseModel):
@@ -40,6 +42,9 @@ class AskRequest(BaseModel):
         if not v:
             raise ValueError("La requête ne peut pas être vide ou composée uniquement d'espaces")
         return v
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 @app.get("/health")
 async def health():
@@ -89,22 +94,48 @@ async def ask(req: AskRequest):
         vector_hits.append(payload)
 
     # 3. Reciprocal Rank Fusion (RRF) - Fusion intelligente des résultats
-    fused_results = reciprocal_rank_fusion(
+    # On récupère plus de candidats (pool) pour le re-ranking
+    candidates_pool = reciprocal_rank_fusion(
         meili_hits=meili_hits,
         vector_hits=vector_hits,
         k=RRF_K,
-        limit=limit * 2  # Obtenir plus de résultats pour pouvoir filtrer
+        limit=50  # Large pool for re-ranking
     )
 
-    # 4. Filtrage par score minimum pour éliminer les résultats peu pertinents
-    filtered_results = [
-        (doc, score) for doc, score in fused_results
-        if score >= MIN_SCORE_THRESHOLD
-    ][:limit]
+    # 4. Re-ranking avec Cross-Encoder (The Judge)
+    # Le Cross-Encoder est beaucoup plus précis mais plus lent, on l'applique sur le pool
+    rerank_inputs = []
+    docs_map = {}
+    
+    for i, (doc, rrf_score) in enumerate(candidates_pool):
+        content = doc.get("content", "")
+        # On stocke le doc pour le retrouver après scoring
+        docs_map[i] = doc
+        rerank_inputs.append((q, content))
+    
+    if rerank_inputs:
+        # Predict retourne des logits (scores non bornés)
+        # Plus le score est haut, plus c'est pertinent
+        scores = cross_encoder.predict(rerank_inputs)
+        
+        # Associer scores et docs
+        ranked_results = []
+        for i, score in enumerate(scores):
+            # On applique une sigmoïde pour avoir un score entre 0 et 1 (probabilité de pertinence)
+            normalized_score = float(sigmoid(score))
+            ranked_results.append((docs_map[i], normalized_score))
+            
+        # Trier par score normalisé décroissant
+        ranked_results.sort(key=lambda x: x[1], reverse=True)
+        
+        # Garder le top K final
+        final_results = ranked_results[:limit]
+    else:
+        final_results = []
 
     # 5. Extraction des termes et formatage de la réponse
     terms = extract_terms(q)
-    answer = format_answer(q, filtered_results, terms)
+    answer = format_answer(q, final_results, terms)
 
     # Logging requests and results
     log_entry = {

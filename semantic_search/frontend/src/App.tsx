@@ -1,159 +1,102 @@
-import { useState, FormEvent } from 'react'
-import { Search, Loader2, BookOpen, FileText } from 'lucide-react'
+import { useState } from "react";
+import { SearchBar } from "./components/SearchBar";
+import { ResultCard } from "./components/ResultCard";
+import { AlertCircle, Sparkles } from "lucide-react";
 
-interface Source {
-  title: string;
-  path: string;
-  page: number;
-}
-
-interface Excerpt {
-  content: string;
-  source: Source;
-  relevance_score?: number;
-}
-
-interface AskResponse {
+interface SearchResponse {
   answer: string;
-  excerpts: Excerpt[];
+  excerpts: any[];
   sources: string[];
-  total_results?: number;
+  total_results: number;
 }
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 function App() {
-  const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [response, setResponse] = useState<AskResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<SearchResponse | null>(null);
+  const [error, setError] = useState("");
 
-  const handleSearch = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!query.trim()) return
+  const handleSearch = async () => {
+    if (!query.trim()) return;
 
-    setLoading(true)
-    setError(null)
-    setResponse(null)
+    setLoading(true);
+    setError("");
+    setResults(null);
 
     try {
-      const res = await fetch(`${API_URL}/ask`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
-      })
+      });
 
-      if (!res.ok) {
-        throw new Error('Erreur lors de la requête au serveur')
-      }
+      if (!response.ok) throw new Error("Search service unreachable");
 
-      const data = await res.json()
-      setResponse(data)
+      const data = await response.json();
+      setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue')
+      setError("An error occurred while fetching results. Please try again.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        <header className="text-center mb-12">
-          <h1 className="text-4xl font-extrabold tracking-tight mb-4">
-            Assistant Documentaire <span className="text-blue-600">Hybrid</span>
-          </h1>
-          <p className="text-lg text-gray-600 dark:text-gray-400">
-            Recherche intelligente combinant BM25 et Vecteurs par IA.
-          </p>
-        </header>
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center p-4 sm:p-8 font-sans">
+      
+      {/* Top Decoration */}
+      <div className="fixed top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-purple-500 to-blue-600 opacity-50" />
 
-        <form onSubmit={handleSearch} className="relative mb-12">
-          <div className="relative flex items-center">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Posez votre question sur les spécifications techniques..."
-              className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-2xl py-4 pl-12 pr-24 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm leading-tight"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-xl transition disabled:opacity-50 flex items-center gap-2"
-            >
-              {loading ? <Loader2 className="animate-spin h-4 w-4" /> : 'Rechercher'}
-            </button>
-          </div>
-        </form>
-
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 p-4 rounded-xl mb-8">
-            {error}
-          </div>
-        )}
-
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-20 animate-pulse">
-            <Loader2 className="h-12 w-12 text-blue-500 animate-spin mb-4" />
-            <p className="text-gray-500 font-medium">Analyse des documents en cours...</p>
-          </div>
-        )}
-
-        {response && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Answer Section */}
-            <section className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm border border-gray-100 dark:border-gray-700">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-blue-600" /> Réponse
-              </h2>
-              <div 
-                className="prose dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
-                dangerouslySetInnerHTML={{ __html: response.answer }}
-              />
-            </section>
-
-            {/* Excerpts Section */}
-            <section className="space-y-4">
-              <h2 className="text-lg font-bold flex items-center gap-2 px-2">
-                <FileText className="h-5 w-5 text-gray-500" /> Extraits pertinents ({response.excerpts.length})
-              </h2>
-              {response.excerpts.map((exc, idx) => (
-                <div key={idx} className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm hover:border-blue-300 dark:hover:border-blue-900 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-blue-600 dark:text-blue-400 font-semibold">
-                      {exc.source?.path || 'Document'} — Page {exc.source?.page || '?'}
-                    </div>
-                    {exc.relevance_score !== undefined && (
-                      <div className="flex items-center gap-1">
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Pertinence:
-                        </div>
-                        <div className={`text-xs font-bold px-2 py-1 rounded ${
-                          exc.relevance_score >= 70 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                          exc.relevance_score >= 40 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
-                          'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-                        }`}>
-                          {exc.relevance_score.toFixed(0)}%
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div
-                    className="text-gray-600 dark:text-gray-400 text-sm italic"
-                    dangerouslySetInnerHTML={{ __html: exc.content }}
-                  />
-                </div>
-              ))}
-            </section>
-          </div>
-        )}
+      {/* Main Search Area */}
+      <div className="w-full max-w-5xl z-10 mt-[10vh]">
+        <SearchBar
+          value={query}
+          onChange={setQuery}
+          onSearch={handleSearch}
+          loading={loading}
+          hasResults={!!results || loading} // Keep top position if loading
+        />
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mt-8 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 flex items-center gap-2 max-w-lg animate-in fade-in slide-in-from-bottom-2">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Loading Skeletons */}
+      {loading && (
+        <div className="w-full max-w-4xl mt-12 grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-32 bg-muted/20 rounded-xl animate-pulse border border-border/50" />
+          ))}
+        </div>
+      )}
+
+      {/* Results Display */}
+      {results && !loading && (
+        <div className="w-full max-w-4xl mt-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          
+          <div className="flex items-center gap-2 mb-6 text-blue-400 font-medium px-1">
+            <Sparkles size={16} />
+            <span>AI Insights found in {results.sources.length} documents</span>
+          </div>
+
+          <div className="grid gap-4">
+            {results.excerpts.map((excerpt, i) => (
+              <ResultCard key={i} excerpt={excerpt} index={i} />
+            ))}
+          </div>
+
+          <div className="mt-12 text-center text-muted-foreground text-sm pb-8">
+            <p>End of results</p>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
