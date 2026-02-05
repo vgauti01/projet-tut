@@ -8,9 +8,10 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from sentence_transformers import SentenceTransformer
 from settings import MEILI_URL, MEILI_MASTER_KEY, INDEX_NAME, DOCS_DIR, CHUNK_SIZE, CHUNK_OVERLAP
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
 from pdf_utils import extract_pages, chunk_text
+from settings import (
+    EMBED_MODEL, QDRANT_URL
+)
 
 model = SentenceTransformer(EMBED_MODEL)
 

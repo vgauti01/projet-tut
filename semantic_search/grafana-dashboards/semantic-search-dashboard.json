@@ -1,0 +1,168 @@
+{
+  "dashboard": {
+    "title": "Semantic Search - Monitoring Dashboard",
+    "tags": ["rag", "search", "api"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(api_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}} ({{status}})"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Request Latency (p50, p95, p99)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(api_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(api_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(api_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Search Mode Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (mode) (rate(search_requests_total[5m]))",
+            "legendFormat": "{{mode}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Search Stage Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(search_duration_seconds_bucket{stage=\"meili\"}[5m]))",
+            "legendFormat": "Meilisearch (p95)"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(search_duration_seconds_bucket{stage=\"qdrant\"}[5m]))",
+            "legendFormat": "Qdrant (p95)"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(search_duration_seconds_bucket{stage=\"rrf\"}[5m]))",
+            "legendFormat": "RRF (p95)"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(search_duration_seconds_bucket{stage=\"rerank\"}[5m]))",
+            "legendFormat": "Re-ranking (p95)"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 16, "x": 8, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Model Inference Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(model_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{model_type}} (p95)"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(api_errors_total[5m])",
+            "legendFormat": "{{error_type}} - {{endpoint}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Circuit Breaker Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "circuit_breaker_state",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 24}
+      },
+      {
+        "id": 8,
+        "title": "Dependency Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "dependency_up",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Dependency Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "dependency_latency_milliseconds",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 10,
+        "title": "Model Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "model_memory_bytes / 1024 / 1024",
+            "legendFormat": "{{model_name}} (MB)"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30}
+      },
+      {
+        "id": 11,
+        "title": "Results Count Distribution",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(search_results_count_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(search_results_count_bucket[5m]))",
+            "legendFormat": "p95"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30}
+      }
+    ]
+  }
+}

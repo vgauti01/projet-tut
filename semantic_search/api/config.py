@@ -7,7 +7,7 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 INDEX_NAME = os.getenv("INDEX_NAME", "docs")
 
 # Configuration du modèle et de la recherche
-EMBED_MODEL = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 TOP_K = int(os.getenv("TOP_K", "5"))
