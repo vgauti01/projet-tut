@@ -1,21 +1,14 @@
-
-from pathlib import Path
-import fitz  # PyMuPDF
 import re
-from typing import Iterator, Tuple, List
-
-def extract_pages(pdf_path: Path) -> Iterator[Tuple[int, str]]:
-    doc = fitz.open(pdf_path)
-    for i, page in enumerate(doc):
-        text = page.get_text("text")
-        yield i+1, text or ""
-    doc.close()
+from typing import Iterator, List
 
 def split_into_sentences(text: str) -> List[str]:
     """
     Découpe le texte en phrases en utilisant des patterns regex.
     Gère les abréviations courantes et les cas limites.
     """
+    if not text.strip():
+        return []
+
     # Patterns pour détecter les fins de phrases
     # Gère: M., Dr., etc., i.e., e.g., et autres abréviations courantes
     sentence_endings = r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<![A-Z]\.)(?<=\.|\?|\!)\s+'
@@ -34,6 +27,9 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 150) -> Iterator[str]
     Yields:
         Des chunks de texte qui respectent les limites de phrases
     """
+    if not text:
+        return
+
     # Normalisation des espaces
     text = " ".join(text.split())
 
@@ -44,16 +40,8 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 150) -> Iterator[str]
     # Découper en phrases
     sentences = split_into_sentences(text)
 
-    if not sentences:
-        # Fallback sur le chunking basique si pas de phrases détectées
-        start = 0
-        while start < len(text):
-            end = min(start + size, len(text))
-            yield text[start:end]
-            if end == len(text):
-                break
-            start = end - overlap
-        return
+    # Note: sentences ne sera jamais vide ici car text a été vérifié au début
+    # et split_into_sentences renvoie au moins [text] s'il ne trouve pas de ponctuation.
 
     current_chunk = []
     current_length = 0
@@ -77,8 +65,27 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 150) -> Iterator[str]
             temp_length = 0
 
             for word in words:
-                word_len = len(word) + 1  # +1 pour l'espace
-                if temp_length + word_len > size and temp_chunk:
+                word_len = len(word)
+                
+                # Si le mot seul dépasse la taille, on doit le couper par caractères
+                if word_len > size:
+                    # On vide d'abord ce qu'il y a dans temp_chunk
+                    if temp_chunk:
+                        yield " ".join(temp_chunk)
+                        temp_chunk = []
+                        temp_length = 0
+                    
+                    # On débite le mot géant par morceaux
+                    start = 0
+                    while start < word_len:
+                        end = min(start + size, word_len)
+                        yield word[start:end]
+                        if end == word_len:
+                            break
+                        start = end - overlap
+                    continue
+
+                if temp_length + word_len + 1 > size and temp_chunk:
                     yield " ".join(temp_chunk)
                     # Garder quelques mots pour l'overlap
                     overlap_words = int(len(temp_chunk) * (overlap / size))
@@ -86,7 +93,7 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 150) -> Iterator[str]
                     temp_length = sum(len(w) + 1 for w in temp_chunk)
 
                 temp_chunk.append(word)
-                temp_length += word_len
+                temp_length += word_len + 1
 
             if temp_chunk:
                 yield " ".join(temp_chunk)

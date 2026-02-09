@@ -100,6 +100,19 @@ class HealthChecker:
                 "error": str(e)
             }
 
+    def check_llm(self) -> Dict[str, Any]:
+        """Check LLM availability and model info."""
+        try:
+            from llm import get_llm_service
+            llm = get_llm_service()
+            info = llm.get_model_info()
+            return {
+                "status": "up" if llm.is_available() else "disabled",
+                **info
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
     def get_models_status(self) -> Dict[str, str]:
         """Get AI models loading status."""
         return {
@@ -166,6 +179,8 @@ class HealthChecker:
         elif not self.models_loaded:
             overall_status = "starting"
 
+        llm_status = self.check_llm()
+
         return {
             "status": overall_status,
             "timestamp": datetime.utcnow().isoformat(),
@@ -175,6 +190,7 @@ class HealthChecker:
                 "meilisearch": meili_status,
                 "qdrant": qdrant_status
             },
+            "llm": llm_status,
             "service_info": {
                 "version": "1.0.0",
                 "environment": "production"

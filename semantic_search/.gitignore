@@ -1,7 +1,17 @@
-# Environment variables
-.env
+# Secrets and Environment variables
+.env.local
+.env.*.local
+.env.production
+.env.staging
+secrets/
+*.key
+*.pem
+*.crt
 *.env
 !.env.example
+
+# Backup files
+.env.local.backup.*
 
 # Python
 __pycache__/
@@ -57,6 +67,9 @@ data/indexes/meili/*
 !data/indexes/meili/.gitkeep
 data/indexes/qdrant/*
 !data/indexes/qdrant/.gitkeep
+data/models/*.gguf
+data/models/*.bin
+!data/models/.gitkeep
 
 # Optional: Uncomment if you don't want to track PDFs
 # data/docs/*.pdf
@@ -78,3 +91,6 @@ htmlcov/
 *.bak
 *.swp
 res.json
+
+CLAUDE.md
+.claude/

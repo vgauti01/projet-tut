@@ -61,7 +61,7 @@ graph TD
 
 ## 3. Périmètre détaillé par cas d'usage
 
-### 🏢 Cas 1 : Entreprise (Scale large)
+### Cas 1 : Entreprise (Scale large)
 
 | Aspect | Détail |
 |--------|--------|
@@ -73,7 +73,7 @@ graph TD
 | **Authentification** | Active Directory / SSO |
 | **Permissions** | Gestion des droits d'accès par utilisateur/groupe |
 
-### 🔧 Cas 2 : Machine Industrielle (Scale minimal)
+### Cas 2 : Machine Industrielle (Scale minimal)
 
 | Aspect | Détail |
 |--------|--------|
@@ -88,10 +88,10 @@ graph TD
 ### Exigence de scalabilité
 
 La solution doit permettre :
-- ✅ **Déploiement minimal** : Configuration légère pour un PC industriel (quelques dizaines de docs)
-- ✅ **Déploiement centralisé** : Architecture robuste multi-utilisateurs pour l'entreprise (300k+ docs)
-- ✅ **Même interface utilisateur** : Expérience cohérente entre les deux cas
-- ✅ **Même stack technique** : Éviter de maintenir deux solutions différentes
+- **Déploiement minimal** : Configuration légère pour un PC industriel (quelques dizaines de docs)
+- **Déploiement centralisé** : Architecture robuste multi-utilisateurs pour l'entreprise (300k+ docs)
+- **Même interface utilisateur** : Expérience cohérente entre les deux cas
+- **Même stack technique** : Éviter de maintenir deux solutions différentes
 
 ---
 
@@ -139,16 +139,16 @@ Danswer est une plateforme open source de recherche et de chat d'entreprise bas�
 
 | Besoin | Couverture | Détail |
 |--------|------------|--------|
-| Types de documents | ✅ Complète | PDF, DOCX, TXT, XLSX, PPTX via parsing natif + OCR optionnel |
-| Sources de données | ✅ Bonne | Connecteurs SharePoint Online, Google Drive, Confluence, Slack, fichiers locaux |
-| Recherche hybride | ✅ Complète | Recherche sémantique (vecteurs) + full-text (mots-clés) |
-| Génération de réponses | ✅ Complète | Chat avec citations, synthèses, réponses détaillées |
-| Traçabilité / Sources | ✅ Complète | Chaque réponse cite les documents sources avec liens |
-| Multi-utilisateurs | ✅ Complète | Authentification, gestion des groupes et permissions |
-| On-Premise | ✅ Complète | Déploiement Docker auto-hébergé |
-| LLM Local | ✅ Complète | Support Ollama, llama.cpp, ou API compatible OpenAI |
-| Langues FR/EN | ✅ Bonne | Dépend du modèle LLM choisi (Mistral, Llama recommandés) |
-| **Scalabilité** | ⚠️ Moyenne | Architecture lourde (5+ services Docker) ; difficilement adaptable pour déploiement minimal |
+| Types de documents | Complète | PDF, DOCX, TXT, XLSX, PPTX via parsing natif + OCR optionnel |
+| Sources de données | Bonne | Connecteurs SharePoint Online, Google Drive, Confluence, Slack, fichiers locaux |
+| Recherche hybride | Complète | Recherche sémantique (vecteurs) + full-text (mots-clés) |
+| Génération de réponses | Complète | Chat avec citations, synthèses, réponses détaillées |
+| Traçabilité / Sources | Complète | Chaque réponse cite les documents sources avec liens |
+| Multi-utilisateurs | Complète | Authentification, gestion des groupes et permissions |
+| On-Premise | Complète | Déploiement Docker auto-hébergé |
+| LLM Local | Complète | Support Ollama, llama.cpp, ou API compatible OpenAI |
+| Langues FR/EN | Bonne | Dépend du modèle LLM choisi (Mistral, Llama recommandés) |
+| Scalabilité | Moyenne | Architecture lourde (5+ services Docker) ; difficilement adaptable pour déploiement minimal |
 
 **Limites**
 
@@ -188,17 +188,16 @@ PrivateGPT est une solution RAG 100% locale, conçue pour garantir la confidenti
 
 | Besoin | Couverture | Détail |
 |--------|------------|--------|
-| Types de documents | ✅ Complète | PDF, DOCX, TXT, CSV, PPTX, images (via OCR intégré) |
-| Sources de données | ⚠️ Partielle | Ingestion par dossier local uniquement ; pas de connecteurs SharePoint/Outlook natifs |
-| Recherche hybride | ✅ Complète | Recherche sémantique + full-text |
-| Génération de réponses | ✅ Complète | Chat, résumés, Q&A avec contexte |
-| Traçabilité / Sources | ✅ Complète | Citations des chunks sources dans chaque réponse |
-| Multi-utilisateurs | ❌ Limitée | Mono-utilisateur par défaut ; pas de gestion de permissions |
-| On-Premise | ✅ Complète | 100% local, zéro appel externe |
-| LLM Local | ✅ Complète | Ollama, llama.cpp, GPT4All intégrés |
-| Langues FR/EN | ✅ Bonne | Selon le modèle (Mistral 7B excellent en FR) |
-| **Scalabilité** | ⚠️ Limitée | Excellent pour déploiement minimal ; moins adapté pour gros volumes et multi-utilisateurs |
-
+| Types de documents | Complète | PDF, DOCX, TXT, CSV, PPTX, images (via OCR intégré) |
+| Sources de données | Partielle | Ingestion par dossier local uniquement ; pas de connecteurs SharePoint/Outlook natifs |
+| Recherche hybride | Complète | Recherche sémantique + full-text |
+| Génération de réponses | Complète | Chat, résumés, Q&A avec contexte |
+| Traçabilité / Sources | Complète | Citations des chunks sources dans chaque réponse |
+| Multi-utilisateurs | Limitée | Mono-utilisateur par défaut ; pas de gestion de permissions |
+| On-Premise | Complète | 100% local, zéro appel externe |
+| LLM Local | Complète | Ollama, llama.cpp, GPT4All intégrés |
+| Langues FR/EN | Bonne | Selon le modèle (Mistral 7B excellent en FR) |
+| Scalabilité | Limitée | Excellent pour déploiement minimal ; moins adapté pour gros volumes et multi-utilisateurs |
 **Limites**
 
 - **Pas de connecteurs natifs** : Nécessite de synchroniser manuellement les fichiers depuis SharePoint/Outlook vers un dossier local (script custom ou outil tiers comme rclone).
@@ -240,16 +239,16 @@ Quivr se positionne comme un "second cerveau" open source. Il permet de créer d
 
 | Besoin | Couverture | Détail |
 |--------|------------|--------|
-| Types de documents | ✅ Bonne | PDF, DOCX, TXT, Markdown, CSV ; support images limité |
-| Sources de données | ⚠️ Partielle | Upload manuel ou API ; connecteurs SharePoint/Outlook non natifs |
-| Recherche hybride | ✅ Complète | Recherche vectorielle + métadonnées |
-| Génération de réponses | ✅ Complète | Chat conversationnel, synthèses |
-| Traçabilité / Sources | ✅ Complète | Sources citées avec chunks |
-| Multi-utilisateurs | ✅ Complète | Gestion des utilisateurs, "brains" partagés ou privés |
-| On-Premise | ✅ Complète | Déploiement Docker self-hosted |
-| LLM Local | ✅ Bonne | Support Ollama, ou API compatible |
-| Langues FR/EN | ✅ Bonne | Dépend du modèle LLM |
-| **Scalabilité** | ⚠️ Moyenne | Architecture multi-services ; moins testé pour très gros volumes ; adapté pour scale moyen |
+| Types de documents | Bonne | PDF, DOCX, TXT, Markdown, CSV ; support images limité |
+| Sources de données | Partielle | Upload manuel ou API ; connecteurs SharePoint/Outlook non natifs |
+| Recherche hybride | Complète | Recherche vectorielle + métadonnées |
+| Génération de réponses | Complète | Chat conversationnel, synthèses |
+| Traçabilité / Sources | Complète | Sources citées avec chunks |
+| Multi-utilisateurs | Complète | Gestion des utilisateurs, "brains" partagés ou privés |
+| On-Premise | Complète | Déploiement Docker self-hosted |
+| LLM Local | Bonne | Support Ollama, ou API compatible |
+| Langues FR/EN | Bonne | Dépend du modèle LLM |
+| Scalabilité | Moyenne | Architecture multi-services ; moins testé pour très gros volumes ; adapté pour scale moyen |
 
 **Limites**
 
@@ -291,16 +290,16 @@ Anything LLM est une solution RAG tout-en-un ultra-légère, conçue pour être 
 
 | Besoin | Couverture | Détail |
 |--------|------------|--------|
-| Types de documents | ✅ Complète | PDF, DOCX, TXT, CSV, PPTX, Markdown, images (via OCR) |
-| Sources de données | ⚠️ Limitée | Upload manuel ou dossier local ; pas de connecteurs SharePoint/Outlook natifs |
-| Recherche hybride | ✅ Complète | Recherche vectorielle + full-text |
-| Génération de réponses | ✅ Complète | Chat conversationnel, citations des sources |
-| Traçabilité / Sources | ✅ Complète | Sources citées avec extraits |
-| Multi-utilisateurs | ✅ Bonne | Gestion des utilisateurs et "workspaces" isolés |
-| On-Premise | ✅ Complète | Installation locale, Docker ou binaire standalone |
-| LLM Local | ✅ Complète | Support Ollama, llama.cpp, LocalAI intégrés |
-| Langues FR/EN | ✅ Bonne | Selon le modèle LLM choisi |
-| **Scalabilité** | ⚠️ Limitée | Architecture légère scalable, **mais pas de système d'ingestion pour gros volumes** |
+| Types de documents | Complète | PDF, DOCX, TXT, CSV, PPTX, Markdown, images (via OCR) |
+| Sources de données | Limitée | Upload manuel ou dossier local ; pas de connecteurs SharePoint/Outlook natifs |
+| Recherche hybride | Complète | Recherche vectorielle + full-text |
+| Génération de réponses | Complète | Chat conversationnel, citations des sources |
+| Traçabilité / Sources | Complète | Sources citées avec extraits |
+| Multi-utilisateurs | Bonne | Gestion des utilisateurs et "workspaces" isolés |
+| On-Premise | Complète | Installation locale, Docker ou binaire standalone |
+| LLM Local | Complète | Support Ollama, llama.cpp, LocalAI intégrés |
+| Langues FR/EN | Bonne | Selon le modèle LLM choisi |
+| Scalabilité | Limitée | Architecture légère scalable, **mais pas de système d'ingestion pour gros volumes** |
 
 **Limites**
 
@@ -336,3 +335,26 @@ yarn dev:frontend
 - **Maximum testé** : ~10 000 documents (au-delà, performance non garantie)
 - Node.js 18+ (si installation source)
 - Ollama ou autre LLM local
+
+---
+
+## Estimation des besoins matériels
+
+### Cas 1 : Entreprise (300k+ fichiers, 50 utilisateurs)
+
+**Configuration Minimale Viable**
+- **CPU** : 8 cœurs / 16 threads (Xeon ou Ryzen)
+- **RAM** : 64 Go minimum (128 Go recommandé)
+- **Stockage** : 1 To SSD NVMe (base vectorielle) + 4 To HDD (documents bruts)
+- **GPU** : NVIDIA RTX 4090 (24 Go VRAM) ou équivalent datacenter (A100, H100)
+- **Réseau** : 10 Gbps interne pour accès aux sources de données
+- **Coût matériel estimé** : 8 000 € - 15 000 € (sans GPU datacenter)
+
+### Cas 2 : Machine Industrielle (30-100 fichiers, 1 utilisateur)
+
+**Configuration "Minimum Syndical"**
+- **CPU** : 2-4 cœurs (Intel i3 ou Celeron décent)
+- **RAM** : 4 Go (8 Go recommandé pour plus de confort)
+- **Stockage** : 128 Go SSD
+- **GPU** : Sans (Inférence CPU uniquement avec modèles 1B/3B quantifiés)
+- **Coût matériel estimé** : 500 € - 1 200 €

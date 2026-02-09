@@ -1,0 +1,65 @@
+# Configuration de Prometheus pour le monitoring de la recherche sémantique
+
+# Paramètres globaux
+global:
+  # Fréquence à laquelle Prometheus va récupérer (pooler) les métriques des cibles
+  scrape_interval: 15s
+  # Fréquence à laquelle les règles d'alerte et d'enregistrement sont évaluées
+  evaluation_interval: 15s
+  # Labels ajoutés à toutes les séries temporelles lors de la communication avec des systèmes externes (ex: alertes)
+  external_labels:
+    monitor: 'semantic-search'
+
+# Configuration de l'Alertmanager (optionnel)
+# Utilisé pour router et gérer les alertes envoyées par Prometheus
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# Fichiers de règles (pour les alertes et les pré-calculs)
+# rule_files:
+#   - 'alerts.yml'
+
+# Configuration des jobs de collecte (Scraping)
+scrape_configs:
+  # Métriques de l'API Python (FastAPI)
+  - job_name: 'api'
+    static_configs:
+      # Nom du service défini dans le docker-compose
+      - targets: ['api:8000']
+    # Chemin vers l'endpoint qui expose les métriques au format Prometheus
+    metrics_path: '/metrics'
+    # Intervalle spécifique pour l'API (plus court pour une meilleure réactivité)
+    scrape_interval: 10s
+
+  # Métriques de Meilisearch (Moteur de recherche texte)
+  - job_name: 'meilisearch'
+    static_configs:
+      - targets: ['meilisearch:7700']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Métriques de Qdrant (Base de données vectorielle)
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Métriques système (CPU, RAM, Disque, Réseau) via Node Exporter
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # Métriques des conteneurs via cAdvisor (stats Docker par conteneur)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+
+  # Auto-surveillance de Prometheus lui-même
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

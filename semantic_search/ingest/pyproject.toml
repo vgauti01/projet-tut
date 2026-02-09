@@ -1,0 +1,53 @@
+[project]
+name = "ingest"
+version = "0.1.0"
+description = "Service d'ingestion pour la recherche sémantique"
+authors = [
+    { name = "vgauti01", email = "gautiervictor@ik.me" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.4.2",
+    "openpyxl>=3.1.5",
+    "pymupdf>=1.26.7",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
+    "qdrant-client>=1.16.2",
+    "requests>=2.32.5",
+    "sentence-transformers>=5.2.2",
+    "tqdm>=4.67.3",
+    "torch",
+]
+
+[project.scripts]
+ingest = "ingest.main:ingest"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov=ingest --cov-report=term-missing --cov-report=html"
+
+[tool.coverage.run]
+omit = [
+    "src/ingest/main.py",
+    "src/ingest/settings.py",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.15.1",
+]

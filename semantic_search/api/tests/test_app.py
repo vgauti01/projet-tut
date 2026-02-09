@@ -3,7 +3,7 @@ Integration tests for FastAPI application endpoints.
 """
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import sys
 from pathlib import Path
 
@@ -14,9 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @pytest.fixture
 def client():
     """Create a test client with mocked dependencies."""
-    with patch('app.SentenceTransformer') as mock_st, \
-         patch('app.CrossEncoder') as mock_ce, \
-         patch('app.QdrantClient') as mock_qd:
+    with patch('search.SentenceTransformer') as mock_st, \
+         patch('search.CrossEncoder') as mock_ce, \
+         patch('search.QdrantClient') as mock_qd, \
+         patch('search.estimate_model_memory'):
 
         # Setup mocks
         mock_st_instance = Mock()
@@ -134,9 +135,9 @@ class TestAskEndpoint:
     @pytest.mark.asyncio
     async def test_ask_successful_hybrid_search(self, client):
         """Test successful hybrid search with both engines."""
-        with patch('app.search_meilisearch') as mock_meili, \
-             patch('app.search_qdrant') as mock_qdrant, \
-             patch('app.cross_encoder') as mock_ce:
+        with patch('search.search_meilisearch') as mock_meili, \
+             patch('search.search_qdrant') as mock_qdrant, \
+             patch('search.cross_encoder') as mock_ce:
 
             # Mock search results
             mock_meili.return_value = [
@@ -178,9 +179,9 @@ class TestAskEndpoint:
     @pytest.mark.asyncio
     async def test_ask_degraded_mode_meili_only(self, client):
         """Test graceful degradation with only Meilisearch working."""
-        with patch('app.search_meilisearch') as mock_meili, \
-             patch('app.search_qdrant') as mock_qdrant, \
-             patch('app.cross_encoder') as mock_ce:
+        with patch('search.search_meilisearch') as mock_meili, \
+             patch('search.search_qdrant') as mock_qdrant, \
+             patch('search.cross_encoder') as mock_ce:
 
             mock_meili.return_value = [
                 {
@@ -208,9 +209,9 @@ class TestAskEndpoint:
     @pytest.mark.asyncio
     async def test_ask_degraded_mode_qdrant_only(self, client):
         """Test graceful degradation with only Qdrant working."""
-        with patch('app.search_meilisearch') as mock_meili, \
-             patch('app.search_qdrant') as mock_qdrant, \
-             patch('app.cross_encoder') as mock_ce:
+        with patch('search.search_meilisearch') as mock_meili, \
+             patch('search.search_qdrant') as mock_qdrant, \
+             patch('search.cross_encoder') as mock_ce:
 
             # Meilisearch fails
             mock_meili.return_value = []
@@ -238,8 +239,8 @@ class TestAskEndpoint:
     @pytest.mark.asyncio
     async def test_ask_fails_when_both_engines_down(self, client):
         """Test that request fails when both engines are unavailable."""
-        with patch('app.search_meilisearch') as mock_meili, \
-             patch('app.search_qdrant') as mock_qdrant:
+        with patch('search.search_meilisearch') as mock_meili, \
+             patch('search.search_qdrant') as mock_qdrant:
 
             # Both fail
             mock_meili.return_value = []
@@ -253,9 +254,9 @@ class TestAskEndpoint:
     @pytest.mark.asyncio
     async def test_ask_handles_reranking_failure(self, client):
         """Test fallback to RRF scores when re-ranking fails."""
-        with patch('app.search_meilisearch') as mock_meili, \
-             patch('app.search_qdrant') as mock_qdrant, \
-             patch('app.cross_encoder') as mock_ce:
+        with patch('search.search_meilisearch') as mock_meili, \
+             patch('search.search_qdrant') as mock_qdrant, \
+             patch('search.cross_encoder') as mock_ce:
 
             mock_meili.return_value = [
                 {

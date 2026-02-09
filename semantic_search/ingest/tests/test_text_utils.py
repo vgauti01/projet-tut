@@ -1,14 +1,9 @@
 """
 Tests for PDF utilities (chunking and text processing).
 """
-import pytest
-import sys
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from pdf_utils import split_into_sentences, chunk_text
+from ingest.text_utils import split_into_sentences, chunk_text
 
 
 class TestSplitIntoSentences:
@@ -55,6 +50,14 @@ class TestSplitIntoSentences:
 
         assert len(sentences) == 1
 
+    def test_split_french_abbreviations(self):
+        """Test French abbreviations commonly found in documents."""
+        text = "M. Macron est le président de la R.F. (République Française). Mme. Borne était PM."
+        sentences = split_into_sentences(text)
+        # Actuellement le regex gère [A-Z]. et [A-Z][a-z]. 
+        # Mme. (4 chars) n'est pas forcément géré selon le regex.
+        assert len(sentences) >= 2
+
 
 class TestChunkText:
     """Tests for intelligent text chunking."""
@@ -66,6 +69,21 @@ class TestChunkText:
 
         assert len(chunks) == 1
         assert chunks[0] == text
+
+    def test_chunk_exact_size(self):
+        """Test text that is exactly the chunk size."""
+        text = "A" * 100
+        chunks = list(chunk_text(text, size=100, overlap=20))
+        assert len(chunks) == 1
+        assert chunks[0] == text
+
+    def test_chunk_very_long_no_spaces(self):
+        """Test handling of very long text without spaces (like base64)."""
+        text = "A" * 500
+        chunks = list(chunk_text(text, size=100, overlap=20))
+        assert len(chunks) > 1
+        # On vérifie que tout le contenu est présent
+        assert "".join(chunks).startswith("A" * 100)
 
     def test_chunk_respects_sentence_boundaries(self):
         """Chunks should respect sentence boundaries."""
@@ -181,3 +199,35 @@ class TestChunkText:
         assert len(chunks) >= 1
         for chunk in chunks:
             assert len(chunk) > 0
+
+    def test_chunk_no_sentences_fallback(self):
+        """Test fallback when no sentences are detected (e.g. text without standard punctuation)."""
+        # Un texte long sans point, point d'interrogation ou d'exclamation
+        text = "word " * 100
+        # On force split_into_sentences à ne rien trouver de probant
+        chunks = list(chunk_text(text, size=100, overlap=20))
+        assert len(chunks) > 1
+        assert "word" in chunks[0]
+
+    def test_split_into_sentences_empty_variants(self):
+        """Test various empty or whitespace-only inputs for sentence splitting."""
+        assert split_into_sentences("") == []
+        assert split_into_sentences("   ") == []
+        assert split_into_sentences("\n\n") == []
+
+    def test_chunk_text_long_sentence_with_giant_word_at_end(self):
+        """Test a long sentence where a giant word is at the very end of temp_chunk."""
+        giant_word = "A" * 200
+        text = f"Short sentence. Start {giant_word}"
+        chunks = list(chunk_text(text, size=100, overlap=20))
+        assert len(chunks) > 1
+        assert any(giant_word[:50] in c for c in chunks)
+
+    def test_chunk_no_sentences_complex_fallback(self):
+        """Test fallback when re.split returns something but not valid sentences."""
+        # Un texte qui n'a pas d'espace après la ponctuation
+        text = "Pas de phrases.Ici non plus.C'est une seule phrase pour le regex."
+        # split_into_sentences utilise \s+ après la ponctuation, donc ici il verra 1 seule phrase
+        # mais la longueur sera > size, donc il entrera dans la logique de découpage de phrase longue.
+        chunks = list(chunk_text(text, size=20, overlap=5))
+        assert len(chunks) > 1

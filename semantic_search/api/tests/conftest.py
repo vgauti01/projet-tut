@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 @pytest.fixture
 def mock_sentence_transformer():
     """Mock SentenceTransformer for testing without loading actual models."""
-    with patch('app.SentenceTransformer') as mock:
+    with patch('search.SentenceTransformer') as mock:
         mock_instance = Mock()
         mock_instance.encode.return_value = Mock(tolist=lambda: [0.1] * 384)
         mock.return_value = mock_instance
@@ -24,7 +24,7 @@ def mock_sentence_transformer():
 @pytest.fixture
 def mock_cross_encoder():
     """Mock CrossEncoder for testing without loading actual models."""
-    with patch('app.CrossEncoder') as mock:
+    with patch('search.CrossEncoder') as mock:
         mock_instance = Mock()
         mock_instance.predict.return_value = [0.8, 0.6, 0.4]
         mock.return_value = mock_instance
@@ -34,7 +34,7 @@ def mock_cross_encoder():
 @pytest.fixture
 def mock_qdrant_client():
     """Mock QdrantClient for testing."""
-    with patch('app.QdrantClient') as mock:
+    with patch('search.QdrantClient') as mock:
         mock_instance = Mock()
         mock_instance.search.return_value = []
         mock.return_value = mock_instance
@@ -53,6 +53,7 @@ def sample_meili_response():
                 "path": "/test.pdf",
                 "page": 1,
                 "chunk_id": 0,
+                "source_type": "pdf",
                 "_formatted": {
                     "content": "This is a sample document about **testing**."
                 }
@@ -64,6 +65,7 @@ def sample_meili_response():
                 "path": "/test.pdf",
                 "page": 2,
                 "chunk_id": 0,
+                "source_type": "pdf",
                 "_formatted": {
                     "content": "Another **test** document with relevant information."
                 }
@@ -84,7 +86,8 @@ def sample_qdrant_response():
         "title": "Test Doc",
         "path": "/test.pdf",
         "page": 1,
-        "chunk_id": 0
+        "chunk_id": 0,
+        "source_type": "pdf"
     }
 
     hit2 = Mock()
@@ -94,7 +97,8 @@ def sample_qdrant_response():
         "title": "Vector Doc",
         "path": "/vector.pdf",
         "page": 1,
-        "chunk_id": 0
+        "chunk_id": 0,
+        "source_type": "pdf"
     }
 
     return [hit1, hit2]

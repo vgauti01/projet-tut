@@ -1,3 +1,5 @@
+# Configuration des paramètres d'ingestion pour l'application de recherche sémantique.
+# Ce fichier définit les variables d'environnement utilisées pour configurer les connexions à Meilisearch et Qdrant, ainsi que les paramètres de traitement des documents.
 
 import os
 MEILI_URL = os.getenv("MEILI_URL", "http://localhost:7700")

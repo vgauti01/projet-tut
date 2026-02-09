@@ -44,7 +44,7 @@ export const ResultCard = ({ excerpt, index }: ResultCardProps) => {
               {excerpt.source.title}
             </h3>
             <p className="text-xs text-muted-foreground">
-              Page {excerpt.source.page} • PDF Document
+              Page {excerpt.source.page} • {(excerpt.source as any).source_type?.toUpperCase() || "PDF"} Document
             </p>
           </div>
         </div>

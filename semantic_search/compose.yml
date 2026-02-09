@@ -1,152 +1,330 @@
+# =============================================================================
+# Docker Compose
+# =============================================================================
+# Utilisation :
+#   - Lancement: docker compose up -d
+#   - Avec monitoring: docker compose --profile monitoring up -d
+# =============================================================================
+
+# Réseaux
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
 
 services:
+  # ===========================================================================
+  # Services principaux de l'application
+  # ===========================================================================
+
+  # Meilisearch est un moteur de recherche rapide et léger, utilisé pour l'indexation et la recherche de texte.
+  # Il est configuré pour stocker ses données dans un volume persistant et expose son API sur le port 7700.
   meilisearch:
     image: getmeili/meilisearch:v1.12
+    container_name: meilisearch
+    restart: unless-stopped
+    networks:
+      - backend
     environment:
-      - MEILI_ENV=production
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
     volumes:
       - ./data/indexes/meili:/meili_data
     ports:
-      - "7700:7700"
+      - "${MEILI_PORT:-7700}:7700"
+    # Le healthcheck vérifie que Meilisearch est capable de répondre à une requête HTTP sur son endpoint de santé.
+    # Cela permet à Docker de redémarrer automatiquement le conteneur si Meilisearch devient non réactif.
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7700/health"] 
-      interval: 5s
-      timeout: 2s
-      retries: 10
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans Meilisearch.
+      - no-new-privileges:true
 
   qdrant:
     image: qdrant/qdrant:v1.12.1
-    ports:
-      - "6333:6333"
+    container_name: qdrant
+    restart: unless-stopped
+    networks:
+      - backend
     volumes:
+      # Monte le répertoire de stockage de Qdrant dans un volume persistant sur l'hôte pour garantir que les données vectorielles sont conservées même si le conteneur est redémarré ou recréé.
       - ./data/indexes/qdrant:/qdrant/storage
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    # Le healthcheck vérifie que Qdrant est capable de répondre à une requête HTTP sur son endpoint de santé.
+    # Cela permet à Docker de redémarrer automatiquement le conteneur si Qdrant devient non réactif.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:6333/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans Qdrant.
+      - no-new-privileges:true
 
+  # ===========================================================================
+  # Services de l'application
+  # ===========================================================================
+
+  # Service API, qui gère les requêtes de recherche, l'indexation et la logique métier. 
+  # Il dépend de Meilisearch et Qdrant pour fonctionner correctement.
   api:
     build:
       context: ./api
-    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+      dockerfile: Dockerfile
+    container_name: api
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
     environment:
-      - MEILI_URL=http://meilisearch:7700
+      - MEILI_URL=${MEILI_URL:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
-      - QDRANT_URL=http://qdrant:6333
-      - INDEX_NAME=docs
-      - EMBED_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-      - RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
-      - CORS_ORIGINS=http://localhost:5173
-      - TOP_K=5
-      - RRF_K=60
-      - MIN_SCORE_THRESHOLD=0.01
-      - SEARCH_MULTIPLIER=3
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - INDEX_NAME=${INDEX_NAME:-docs}
+      - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
+      - RERANK_MODEL=${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173}}
+      - TOP_K=${TOP_K:-5}
+      - RRF_K=${RRF_K:-60}
+      - MIN_SCORE_THRESHOLD=${MIN_SCORE_THRESHOLD:-0.01}
+      - SEARCH_MULTIPLIER=${SEARCH_MULTIPLIER:-3}
+      - LLM_MODEL_PATH=${LLM_MODEL_PATH:-}
+      - LLM_N_CTX=${LLM_N_CTX:-2048}
+      - LLM_N_THREADS=${LLM_N_THREADS:-0}
+      - LLM_GPU_LAYERS=${LLM_GPU_LAYERS:-0}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.7}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-512}
+      - LLM_MAX_HISTORY=${LLM_MAX_HISTORY:-5}
+      - API_SECRET_KEY=${API_SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
+      # L'API doit attendre que Meilisearch et Qdrant soient opérationnels avant de démarrer, car elle dépend de ces services pour la recherche et l'indexation.
       meilisearch:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Monte les modèles de langage locaux en lecture seule pour permettre à l'API de les charger sans risquer de les modifier.
+      - ./data/models:/app/models:ro
+      # Monte les logs de l'API dans un volume persistant pour faciliter le débogage et la surveillance, tout en évitant d'écrire directement sur le disque de l'hôte.
+      - api_logs:/app/logs
+    tmpfs:
+      # L'API peut générer des fichiers temporaires pour le cache, les sessions ou les téléchargements, et les stocke dans des tmpfs pour éviter d'écrire sur le disque de l'hôte, améliorant ainsi les performances et la sécurité.
+      - /app/tmp:mode=1777,size=100m
+    # Le healthcheck vérifie que l'API est capable de répondre à une requête HTTP sur son endpoint de santé. Cela permet à Docker de redémarrer automatiquement le conteneur si l'API devient non réactive.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans l'API.
+      - no-new-privileges:true
 
   ingestor:
     build:
       context: ./ingest
+      dockerfile: Dockerfile
+    container_name: ingestor
+    # Ne redémarre pas automatiquement l'ingestor, car il est conçu pour s'exécuter une fois pour indexer les documents, puis s'arrêter.
+    restart: "no"
+    networks:
+      - backend
     environment:
-      - MEILI_URL=http://meilisearch:7700
+      - MEILI_URL=${MEILI_URL:-http://meilisearch:7700}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
-      - INDEX_NAME=docs
-      - DOCS_DIR=/workdir/data/docs
-      - CHUNK_SIZE=800
-      - CHUNK_OVERLAP=200
-      - QDRANT_URL=http://qdrant:6333
-      - EMBED_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-      - RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+      - INDEX_NAME=${INDEX_NAME:-docs}
+      - DOCS_DIR=${DOCS_DIR:-/workdir/data/docs}
+      - CHUNK_SIZE=${CHUNK_SIZE:-800}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
+      - RERANK_MODEL=${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
     volumes:
-      - ./:/workdir
+      - ./:/workdir:ro
     depends_on:
+      # L'ingestor doit attendre que l'API soit opérationnelle, car il dépend de la disponibilité de Meilisearch et Qdrant pour indexer les documents.
       meilisearch:
         condition: service_healthy
       qdrant:
-        condition: service_started
-    command: ["python", "ingest_hybrid.py"]
+        condition: service_healthy
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans l'ingestor.
+      - no-new-privileges:true
 
+  # Service frontend, qui sert l'interface utilisateur et communique avec l'API pour les recherches et les interactions.
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    networks:
+      - frontend
     environment:
-      - VITE_API_URL=http://localhost:8000
+      # L'URL de l'API est injectée dans le frontend via une variable d'environnement, permettant au code client de faire des requêtes à l'API sans hardcoder l'adresse.
+      - VITE_API_URL=http://localhost:${API_PORT:-8000}
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
       - api
+    tmpfs:
+      # Le frontend génère des fichiers temporaires pour le cache, les sessions ou les téléchargements, et les stocke dans des tmpfs pour éviter d'écrire sur le disque de l'hôte, améliorant ainsi les performances et la sécurité.
+      - /var/cache/nginx:mode=1777,size=50m
+      - /var/run:mode=1777,size=10m
+    # Le healthcheck vérifie que le frontend est capable de répondre à une requête HTTP sur son endpoint de santé. Cela permet à Docker de redémarrer automatiquement le conteneur si le frontend devient non réactif.
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans le frontend.
+      - no-new-privileges:true
 
+  # ===========================================================================
+  # Monitoring
+  # ===========================================================================
+
+  # Prometheus permet de collecter les métriques de l'API, Node Exporter et cAdvisor
   prometheus:
     image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      # Monte le fichier de configuration Prometheus en lecture seule.
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Le volume persistant pour les données de Prometheus (métriques, règles, etc.).
       - prometheus_data:/prometheus
     command:
+      # Définit le fichier de configuration à utiliser pour Prometheus.
       - '--config.file=/etc/prometheus/prometheus.yml'
+      # Définit l'endroit où Prometheus doit écrire ses données sur disque.
       - '--storage.tsdb.path=/prometheus'
+      # Définit la durée de rétention des données. 
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      # Pointent vers les bibliothèques internes de Prometheus pour l'affichage de sa propre interface web
       - '--web.console.libraries=/usr/share/prometheus/console_libraries'
       - '--web.console.templates=/usr/share/prometheus/consoles'
+      # Permet de redémarrer Prometheus à la volée via son API HTTP, très utile pour appliquer des changements de configuration sans downtime.
+      - '--web.enable-lifecycle'
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
+      # L'API doit démarrer avant Prometheus pour que les métriques soient disponibles dès le début.
       - api
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans Prometheus.
+      - no-new-privileges:true
 
+  # Grafana permet de visualiser les métriques collectées par Prometheus avec des dashboards préconfigurés
   grafana:
     image: grafana/grafana:10.2.0
+    container_name: grafana
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
     volumes:
+      # Le volume persistant pour les données de Grafana (dashboards, utilisateurs, etc.).
       - grafana_data:/var/lib/grafana
-      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana-datasources:/etc/grafana/provisioning/datasources
+      # Monte les dashboards préconfigurés en lecture seule.
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Monte les sources de données préconfigurées en lecture seule (ici, la source de données Prometheus).
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=http://localhost:${GRAFANA_PORT:-3000}
       - GF_USERS_ALLOW_SIGN_UP=false
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
+      # Grafana doit démarrer après Prometheus pour s'assurer que la source de données est disponible.
       - prometheus
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans Grafana.
+      - no-new-privileges:true
 
-  # Node Exporter - System metrics (CPU, RAM, Disk, Network)
+  # node-exporter permet de collecter des métriques système détaillées (CPU, mémoire, disque, réseau) pour le serveur hôte.
   node-exporter:
-    image: prom/node-exporter:v1.7.0
+    image: prom/node-exporter:v1.10.2
     container_name: node-exporter
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
     command:
-      - '--path.rootfs=/host'
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--path.rootfs=/host' # "Le vrai disque racine est dans /host"
+      - '--path.procfs=/host/proc' # "Les processus et la consommation CPU/RAM sont dans /host/proc"
+      - '--path.sysfs=/host/sys' # "Les informations système sont dans /host/sys"
+      # Exclut les points de montage virtuels qui ne sont pas pertinents pour les métriques système et peuvent causer du bruit ou des erreurs.
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)' 
     volumes:
+      # Le répertoire /proc sous Linux contient toutes les informations sur les processus, l'utilisation CPU et la RAM. 
       - /proc:/host/proc:ro
+      # Contient les informations sur le matériel (températures, fréquences CPU, état des disques).
       - /sys:/host/sys:ro
+      # Permet de voir l'espace disque total et utilisé sur l'ensemble de l'hôte.
       - /:/rootfs:ro
     ports:
-      - "9100:9100"
-    restart: unless-stopped
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges.
+      - no-new-privileges:true
 
-  # cAdvisor - Container metrics (Docker/container stats)
+
+  # cAdvisor permet de collecter des métriques détaillées sur les conteneurs Docker (utilisation CPU, mémoire, réseau, etc.).
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    image: gcr.io/cadvisor/cadvisor:v0.51.0
     container_name: cadvisor
-    privileged: true
-    devices:
-      - /dev/kmsg
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    networks:
+      - backend
     volumes:
+      # Monte la racine du système de fichiers de l'hôte.
+      # Cela permet à cAdvisor de voir l'utilisation globale du disque et d'analyser la hiérarchie des processus.
       - /:/rootfs:ro
+      # Permet d'accéder au socket Docker. 
+      # C'est indispensable pour que cAdvisor puisse faire le lien entre les statistiques brutes du noyau et le nom/ID des conteneurs Docker.
       - /var/run:/var/run:ro
+      # C'est ici que se trouvent les cgroups (Control Groups). 
+      # Le noyau Linux y écrit en temps réel la consommation CPU, RAM et I/O de chaque processus.
       - /sys:/sys:ro
+      # Permet à cAdvisor de calculer la taille réelle occupée par les images et les couches de chaque conteneur sur le disque.
       - /var/lib/docker/:/var/lib/docker:ro
+      # Donne accès aux informations sur les partitions physiques, permettant de mesurer les débits d'écriture/lecture (IOPS) sur le matériel.
       - /dev/disk/:/dev/disk:ro
     ports:
-      - "8080:8080"
-    restart: unless-stopped
+      - "${CADVISOR_PORT:-8080}:8080"
+    privileged: true  # Lève les restrictions d'accès au système et autres conteneurs, nécessaire pour accéder à tous les détails du système et des conteneurs.
+    devices:
+      # C'est le "journal" du noyau (kernel log).
+      # cAdvisor l'écoute pour détecter des événements graves au niveau système, comme un OOM Kill
+      - /dev/kmsg
+    security_opt:
+      # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en mode privilégié.
+      - no-new-privileges:true
 
+# =============================================================================
+# Volumes
+# =============================================================================
 volumes:
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
+  api_logs:
+    driver: local
