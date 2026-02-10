@@ -1,64 +1,52 @@
-# Multi-stage build for security and smaller image size
-FROM python:3.11-slim AS builder
+# Stage 1: Build & Lock
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy requirements and install dependencies
-COPY requirements.txt /tmp/
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
-
-# =============================================================================
-# Final stage - minimal runtime image
-# =============================================================================
-FROM python:3.11-slim
-
-# Security: Install security updates only
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-        curl \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Create non-root user
-RUN groupadd -r appuser && \
-    useradd -r -g appuser -u 1000 -m -s /bin/bash appuser
-
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY --chown=appuser:appuser . /app/
+# Enable bytecode compilation
+ENV UV_COMPILE_BYTECODE=1
+# Copy from the cache instead of linking since it's a multi-stage build
+ENV UV_LINK_MODE=copy
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/logs /app/tmp && \
-    chown -R appuser:appuser /app
+# Install build dependencies (for llama-cpp-python)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-# Switch to non-root user
+# Install dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    uv sync --frozen --no-install-project --no-dev --all-extras
+
+# Stage 2: Final Image
+FROM python:3.11-slim-bookworm
+
+WORKDIR /app
+
+# Copy the environment from the builder
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -u 1000 -m appuser
+RUN mkdir -p /app/logs && chown appuser:appuser /app/logs
+
+# Copy source code (using src layout)
+COPY --chown=appuser:appuser src/ /app/src/
+COPY --chown=appuser:appuser pyproject.toml /app/
+
+# On installe le projet lui-même si nécessaire (facultatif si on utilise PYTHONPATH)
+ENV PYTHONPATH="/app/src"
+
 USER appuser
-
-# Expose port
 EXPOSE 8000
 
-# Health check
+# Health check (requires curl)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health/live || exit 1
 
-# Run application
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Run the API using the entry point defined in pyproject.toml
+CMD ["api"]

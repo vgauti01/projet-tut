@@ -10,16 +10,16 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
-from config import (
+from .config import (
     CORS_ORIGINS, RRF_K, TOP_K
 )
-from search import (
+from .search import (
     embed_model, cross_encoder, search_meilisearch, search_qdrant, sigmoid
 )
-from utils import format_answer, extract_terms, reciprocal_rank_fusion
-from health import health_checker
-from metrics import SearchMetrics, ModelMetrics
-from chat import router as chat_router
+from .utils import format_answer, extract_terms, reciprocal_rank_fusion
+from .health import health_checker
+from .metrics import SearchMetrics, ModelMetrics
+from .chat import router as chat_router
 
 # Configure logging
 logging.basicConfig(
@@ -183,3 +183,11 @@ async def ask(req: AskRequest):
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
         return answer
+
+def serve():
+    import uvicorn
+    import os
+    port = int(os.getenv("API_PORT", 8000))
+    # Note: On utilise le module "api.app" pour l'import de l'application.
+    # Ceci assume que le package est installé ou que le PYTHONPATH est correct.
+    uvicorn.run("api.app:app", host="0.0.0.0", port=port, reload=False)
