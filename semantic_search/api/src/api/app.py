@@ -11,25 +11,28 @@ from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 from .config import (
-    CORS_ORIGINS, RRF_K, TOP_K
+    CORS_ORIGINS, TOP_K
 )
 from .search import (
-    embed_model, cross_encoder, search_meilisearch, search_qdrant, sigmoid
+    perform_hybrid_search
 )
-from .utils import format_answer, extract_terms, reciprocal_rank_fusion
+from .utils import format_answer, extract_terms
 from .health import health_checker
-from .metrics import SearchMetrics, ModelMetrics
+from .metrics import SearchMetrics, ModelMetrics, track_request_metrics
 from .chat import router as chat_router
 
-# Configure logging
+# Configuration du logging pour l'application avec le timestamp
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Assistant Hybride (BM25 + Vector)")
+# Création de l'application FastAPI avec un titre descriptif.
+app = FastAPI(title="Assistant RAG Hybride (BM25 + Vector)")
 
+# Configuration du middleware CORS pour permettre les requêtes depuis les origines spécifiées dans la configuration
+# Essentiel pour la communication entre le frontend et le backend de l'application.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -38,13 +41,14 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
-# Mark models as loaded (they are loaded at search.py import time)
+# On marque les modèles comme chargés dans le HealthChecker après leur chargement réussi, ce qui affecte les réponses des endpoints de santé.
 health_checker.mark_models_loaded()
 
-# Register chat router
+# Inclut les routes de chat définies dans chat.py, qui gèrent les interactions de type conversationnel avec le service.
 app.include_router(chat_router)
 
 class AskRequest(BaseModel):
+    """Modèle de requête pour l'endpoint /ask, avec validation des champs."""
     query: str = Field(..., min_length=1, max_length=1000, description="Question de l'utilisateur")
     limit: int | None = Field(None, ge=1, le=100, description="Nombre de résultats (1-100)")
 
@@ -65,11 +69,13 @@ async def health():
 
 @app.get("/health/live")
 async def health_live():
+    """Endpoint de vérification de vie (liveness) pour s'assurer que le service est opérationnel et répond aux requêtes de base."""
     return await health_checker.liveness_check()
 
 
 @app.get("/health/ready")
 async def health_ready():
+    """Endpoint de vérification de préparation (readiness) pour s'assurer que le service est prêt à recevoir du trafic."""
     result = await health_checker.readiness_check()
     if result["status"] == "ready":
         return result
@@ -79,112 +85,54 @@ async def health_ready():
 
 @app.get("/health/deep")
 async def health_deep():
+    """Endpoint de vérification de santé approfondie (deep health check) pour obtenir un diagnostic détaillé de tous les composants du service."""
     return await health_checker.deep_health_check()
 
 
 @app.get("/metrics")
 async def metrics():
+    """Endpoint pour exposer les métriques Prometheus, permettant la surveillance et l'observabilité du service."""
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @app.post("/ask")
+@track_request_metrics("/ask")
 async def ask(req: AskRequest):
+    """
+    Endpoint principal pour traiter les requêtes de recherche.
+    Gère la logique de recherche hybride, la fusion des résultats et le reranking.
+    """
     q = req.query
     limit = req.limit or TOP_K
 
-    with SearchMetrics(q) as search_metrics:
-        logger.info(f"Processing query: '{q}' (limit={limit})")
+    # Exécution de la recherche hybride mutualisée
+    final_results, search_mode = await perform_hybrid_search(q, limit)
 
-        meili_start = time.time()
-        meili_task = asyncio.create_task(search_meilisearch(q, limit))
-        qdrant_start = time.time()
-        qdrant_task = asyncio.create_task(search_qdrant(q, limit))
-
-        meili_hits, vector_hits = await asyncio.gather(meili_task, qdrant_task)
-
-        search_metrics.record_stage("meili", time.time() - meili_start)
-        search_metrics.record_stage("qdrant", time.time() - qdrant_start)
-
-        if not meili_hits and not vector_hits:
-            logger.error("Both search engines failed or returned no results")
-            raise HTTPException(
-                status_code=503,
-                detail="Both search engines are unavailable. Please try again later."
-            )
-
-        if not meili_hits and vector_hits:
-            search_mode = "qdrant_only"
-            logger.warning("Operating in degraded mode: vector-only (Meilisearch unavailable)")
-        elif meili_hits and not vector_hits:
-            search_mode = "meili_only"
-            logger.warning("Operating in degraded mode: keyword-only (Qdrant unavailable)")
-        else:
-            search_mode = "hybrid"
-            logger.info(f"Hybrid mode: found {len(meili_hits)} BM25 hits, {len(vector_hits)} vector hits")
-
-        search_metrics.set_mode(search_mode)
-
-        # RRF fusion
-        rrf_start = time.time()
-        candidates_pool = reciprocal_rank_fusion(
-            meili_hits=meili_hits,
-            vector_hits=vector_hits,
-            k=RRF_K,
-            limit=50
+    if search_mode == "failed":
+        raise HTTPException(
+            status_code=503,
+            detail="Les moteurs de recherche sont indisponibles. Veuillez réessayer plus tard."
         )
-        search_metrics.record_stage("rrf", time.time() - rrf_start)
 
-        # Cross-encoder reranking
-        rerank_inputs = []
-        docs_map = {}
+    # Extraction des termes de la requête pour le surlignage dans les extraits de réponse.
+    terms = extract_terms(q)
+    # formatage de la réponse finale à retourner à l'utilisateur en utilisant les résultats rerankés.
+    answer = format_answer(q, final_results, terms)
 
-        for i, (doc, rrf_score) in enumerate(candidates_pool):
-            content = doc.get("content", "")
-            docs_map[i] = doc
-            rerank_inputs.append((q, content))
+    # Enregistrement de la requête, du mode de recherche utilisé, du nombre de résultats et des sources dans un fichier de log.
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "query": q,
+        "mode": search_mode,
+        "results_count": len(final_results),
+        "sources": answer.get("sources", [])
+    }
+    with open("requests.log", "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
-        if rerank_inputs:
-            try:
-                logger.info(f"Re-ranking {len(rerank_inputs)} candidates with cross-encoder")
-                rerank_start = time.time()
-
-                with ModelMetrics("rerank"):
-                    scores = cross_encoder.predict(rerank_inputs)
-
-                search_metrics.record_stage("rerank", time.time() - rerank_start)
-
-                ranked_results = []
-                for i, score in enumerate(scores):
-                    normalized_score = float(sigmoid(score))
-                    ranked_results.append((docs_map[i], normalized_score))
-
-                ranked_results.sort(key=lambda x: x[1], reverse=True)
-                final_results = ranked_results[:limit]
-                logger.info(f"Re-ranking successful, returning top {len(final_results)} results")
-
-            except Exception as e:
-                logger.error(f"Re-ranking failed: {e}. Falling back to RRF scores.")
-                final_results = candidates_pool[:limit]
-        else:
-            final_results = []
-
-        search_metrics.set_results_count(len(final_results))
-
-        terms = extract_terms(q)
-        answer = format_answer(q, final_results, terms)
-
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "query": q,
-            "mode": search_mode,
-            "results_count": len(final_results),
-            "sources": answer.get("sources", [])
-        }
-        with open("requests.log", "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-
-        return answer
+    return answer
 
 def serve():
+    """Fonction pour démarrer le serveur Uvicorn, utilisée par le script de lancement dans pyproject.toml."""
     import uvicorn
     import os
     port = int(os.getenv("API_PORT", 8000))

@@ -29,6 +29,7 @@ def reciprocal_rank_fusion(
         meili_hits: Résultats de Meilisearch (BM25)
         vector_hits: Résultats de Qdrant (Vector)
         k: Constante pour éviter les divisions par zéro (généralement 60)
+        rank_i: Rang du document dans le système i (1-based)
         limit: Nombre de résultats à retourner
 
     Returns:
@@ -126,6 +127,7 @@ def extract_terms(q: str) -> List[str]:
         "and", "or", "but", "for", "in", "on", "at", "to", "of", "is", "are"
     }
 
+    # Les termes significatifs sont ceux qui ont plus de 2 caractères et ne sont pas des stop words.
     significant_terms = [
         t for t in terms
         if len(t) > 2 and t.lower() not in stop_words

@@ -15,7 +15,7 @@ def get_llm_service() -> LLMService:
     Factory qui retourne le meilleur service de langage disponible.
     Actuellement, il n'y a qu'une implémentation locale, mais cette fonction peut être étendue à l'avenir pour inclure d'autres services de langage (par exemple, des services basés sur le cloud).
     """
-    from config import LLM_MODEL_PATH
+    from ..config import LLM_MODEL_PATH
     service = LocalLLMService(LLM_MODEL_PATH)
     # Si le service local est disponible (par exemple, si le modèle est chargé correctement), on le retourne.
     if service.is_available():
