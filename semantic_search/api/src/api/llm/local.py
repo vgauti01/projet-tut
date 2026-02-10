@@ -27,7 +27,7 @@ class LocalLLMService(LLMService):
 
         # Si aucune configuration n'est fournie, on crée une configuration par défaut en se basant sur les variables d'environnement ou les valeurs par défaut codées en dur.
         if config is None:
-            from config import (
+            from ..config import (
                 LLM_N_CTX, LLM_N_THREADS, LLM_GPU_LAYERS,
                 LLM_TEMPERATURE, LLM_MAX_TOKENS
             )
@@ -50,9 +50,9 @@ class LocalLLMService(LLMService):
         # Un message d'avertissement est enregistré dans les logs.
         if not self._model_path or not Path(self._model_path).is_file():
             if self._model_path:
-                logger.warning(f"LLM model file not found: {self._model_path}")
+                logger.warning(f"Fichier de modèle LLM non trouvé: {self._model_path}")
             else:
-                logger.info("LLM_MODEL_PATH not set, LLM features disabled")
+                logger.info("LLM_MODEL_PATH non défini, les fonctionnalités LLM sont désactivées")
             return
 
         # Tenter de charger le modèle en utilisant la bibliothèque llama-cpp-python.
@@ -60,7 +60,7 @@ class LocalLLMService(LLMService):
         try:
             # Import local pour éviter d'avoir une dépendance obligatoire sur llama-cpp-python si le service de langage n'est pas utilisé.
             from llama_cpp import Llama
-            logger.info(f"Loading LLM model from {self._model_path}...")
+            logger.info(f"Chargement du modèle LLM depuis {self._model_path}...")
             # Le modèle est chargé avec les paramètres spécifiés dans la configuration (n_ctx, n_threads, n_gpu_layers).
             self._model = Llama(
                 model_path=self._model_path,
@@ -69,11 +69,11 @@ class LocalLLMService(LLMService):
                 n_gpu_layers=self._config.n_gpu_layers,
                 verbose=False,
             )
-            logger.info("LLM model loaded successfully")
+            logger.info("Modèle LLM chargé avec succès")
         except ImportError:
-            logger.warning("llama-cpp-python not installed, LLM features disabled")
+            logger.warning("llama-cpp-python n'est pas installé, les fonctionnalités LLM sont désactivées")
         except Exception as e:
-            logger.error(f"Failed to load LLM model: {e}")
+            logger.error(f"Impossible de charger le modèle LLM : {e}")
 
     def is_available(self) -> bool:
         """Indique si le service de langage est disponible (par exemple, si le modèle est chargé correctement)."""
@@ -82,7 +82,7 @@ class LocalLLMService(LLMService):
     async def generate(self, messages: List[ChatMessage]) -> str:
         """Génère une réponse basée sur une liste de messages de chat."""
         if not self.is_available():
-            raise RuntimeError("LLM model not available")
+            raise RuntimeError("Le modèle LLM n'est pas disponible")
 
         # Formater les messages de chat dans le format attendu par la bibliothèque llama-cpp-python (une liste de dictionnaires avec les clés "role" et "content").
         formatted = [{"role": m.role, "content": m.content} for m in messages]
