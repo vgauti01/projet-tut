@@ -1,6 +1,12 @@
+# Fichier de configuration pour Grafana, définissant les tableaux de bord.
+# Ce fichier est utilisé pour configurer Grafana afin qu'il puisse charger automatiquement les tableaux de bord à partir de fichiers
+# facilitant ainsi la gestion et la visualisation des métriques.
+
 apiVersion: 1
 
+# Le champ "providers" est une liste de fournisseurs de tableaux de bord que Grafana peut utiliser pour charger les tableaux de bord.
 providers:
+  # Chaque fournisseur définit un ensemble de tableaux de bord à charger, avec des options spécifiques pour la gestion et la mise à jour des tableaux de bord.
   - name: 'Default'
     orgId: 1
     folder: ''
