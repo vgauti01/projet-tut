@@ -1,8 +1,11 @@
 from pathlib import Path
-from typing import Iterator, Tuple
-import fitz  # PyMuPDF, utilisé pour lire les fichiers PDF et extraire le texte de chaque page.
+from typing import Iterator
+import logging
 
 from .base import Extractor, ExtractedPage
+
+logger = logging.getLogger(__name__)
+
 
 class PdfExtractor(Extractor):
     """
@@ -16,21 +19,38 @@ class PdfExtractor(Extractor):
 
     def extract(self, file_path: Path) -> Iterator[ExtractedPage]:
         # Import local pour ne charger PyMuPDF que si nécessaire
-        import fitz
-        
-        doc = fitz.open(file_path)
-        # try/finally pour s'assurer que le document est fermé correctement après l'extraction, même en cas d'erreur lors de l'extraction du texte.
+        import fitz  # PyMuPDF
+
+        doc = None
         try:
+            doc = fitz.open(file_path)
+
+            # Extraction du texte de chaque page
             for i, page in enumerate(doc):
-                # get_text("text") extrait le texte brut de la page, sans mise en forme ni éléments graphiques.
-                # Si la page est vide ou ne contient que des espaces, elle est ignorée.
-                text = page.get_text("text")
-                if text.strip():
-                    yield ExtractedPage(
-                        page_number=i + 1,
-                        text=text,
-                        metadata={"source_type": "pdf"},
-                    )
+                try:
+                    # get_text("text") extrait le texte brut de la page, sans mise en forme ni éléments graphiques
+                    text = page.get_text("text")
+
+                    # Si la page est vide ou ne contient que des espaces, elle est ignorée
+                    if text.strip():
+                        yield ExtractedPage(
+                            page_number=i + 1,
+                            text=text,
+                            metadata={"source_type": "pdf"},
+                        )
+
+                except Exception as e:
+                    logger.error(f"Erreur lors de l'extraction de la page {i + 1} du fichier {file_path}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Impossible d'ouvrir le fichier PDF {file_path}: {e}")
+            return
+
         finally:
-            # Ferme le document pour libérer les ressources, même si une exception est levée pendant l'extraction.
-            doc.close()
+            # Ferme le document pour libérer les ressources, même si une exception est levée
+            if doc is not None:
+                try:
+                    doc.close()
+                except Exception as e:
+                    logger.warning(f"Erreur lors de la fermeture du document PDF: {e}")

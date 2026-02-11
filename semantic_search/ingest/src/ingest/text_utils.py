@@ -1,6 +1,42 @@
 import re
 from typing import Iterator, List
 
+
+def clean_pdf_artifacts(text: str) -> str:
+    """
+    Nettoie les artefacts courants des PDFs (lignes de points, caractères parasites, etc.).
+
+    Args:
+        text: Texte brut extrait du PDF
+
+    Returns:
+        Texte nettoyé
+    """
+    if not text:
+        return text
+
+    # 1. Supprime les lignes de points de table des matières (ex: "Introduction ........ 7")
+    # Pattern: au moins 5 points consécutifs (pour éviter de supprimer "..." normal)
+    # OU 3+ points suivis d'un nombre (numéro de page)
+    text = re.sub(r'\.{5,}', ' ', text)  # 5+ points consécutifs
+    text = re.sub(r'\s+\.{3,}\s+\d+\s*$', ' ', text, flags=re.MULTILINE)  # ... suivi de numéro de page en fin de ligne
+
+    # 2. Supprime les longues séquences de tirets ou underscores
+    text = re.sub(r'[-_]{3,}', '', text)
+
+    # 3. Supprime les lignes vides multiples
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+
+    # 4. Normalise les espaces multiples (mais garde les sauts de ligne)
+    text = re.sub(r'[ \t]+', ' ', text)
+
+    # 5. Supprime les espaces en début/fin de lignes
+    lines = [line.strip() for line in text.split('\n')]
+    text = '\n'.join(lines)
+
+    return text.strip()
+
+
 def split_into_sentences(text: str) -> List[str]:
     """
     Découpe le texte en phrases en utilisant des patterns regex.
