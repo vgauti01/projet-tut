@@ -11,7 +11,7 @@ from typing import List, Dict, Tuple
 import numpy as np
 import httpx
 from sentence_transformers import SentenceTransformer, CrossEncoder
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from .config import (
     MEILI_URL, MEILI_MASTER_KEY, QDRANT_URL, INDEX_NAME,
     EMBED_MODEL, RERANK_MODEL, SEARCH_MULTIPLIER, RRF_K, TOP_K
@@ -24,20 +24,25 @@ from .resilience import (
 )
 from .metrics import ModelMetrics, SearchMetrics, estimate_model_memory
 from .utils import reciprocal_rank_fusion
+from .stopwords import normalize_query
 
 # Configuration du logging.
 logger = logging.getLogger(__name__)
 
 # Chargement des modèles d'embeddings et de reranking au démarrage de l'application, avec estimation de la mémoire utilisée.
+# Utilise HF_CACHE_DIR si défini pour charger depuis les modèles pré-téléchargés
+import os
+cache_dir = os.getenv("HF_CACHE_DIR")
 print(f"Chargement du modèle d'embeddings {EMBED_MODEL}...")
-embed_model = SentenceTransformer(EMBED_MODEL)
+print(f"Cache directory: {cache_dir or 'default (~/.cache/huggingface)'}")
+embed_model = SentenceTransformer(EMBED_MODEL, cache_folder=cache_dir)
 estimate_model_memory(EMBED_MODEL, 120_000_000)
 
 print(f"Chargement du modèle de reranking {RERANK_MODEL}...")
-cross_encoder = CrossEncoder(RERANK_MODEL)
+cross_encoder = CrossEncoder(RERANK_MODEL, cache_folder=cache_dir)
 estimate_model_memory(RERANK_MODEL, 80_000_000)
 
-qdrant_client = QdrantClient(url=QDRANT_URL)
+qdrant_client = AsyncQdrantClient(url=QDRANT_URL)
 
 print("Tous les modèles ont été chargés avec succès")
 
@@ -52,10 +57,14 @@ def sigmoid(x):
 async def search_meilisearch(query: str, limit: int) -> List[Dict]:
     """Recherche dans Meilisearch avec gestion du circuit breaker et logique de retry."""
     headers = {"Authorization": f"Bearer {MEILI_MASTER_KEY}"}
+
+    # Normalise la requête en supprimant les stop words et la ponctuation
+    normalized_query = normalize_query(query)
+
     # Prépare la charge utile pour la requête de recherche, en spécifiant les attributs à récupérer et à surligner,
     # ainsi que le nombre de résultats à retourner (multiplié par un facteur pour compenser la fusion ultérieure).
     payload = {
-        "q": query,
+        "q": normalized_query,
         "limit": limit * SEARCH_MULTIPLIER,
         "attributesToRetrieve": ["id", "content", "title", "path", "page", "chunk_id", "source_type"],
         "attributesToHighlight": ["content"]
@@ -99,11 +108,14 @@ async def search_qdrant(query: str, limit: int) -> List[Dict]:
         """Effectue la recherche dans Qdrant en encodant la requête et en interrogeant le client Qdrant."""
         with ModelMetrics("embed"):
             query_vector = embed_model.encode(query).tolist()
-        return qdrant_client.search(
+        
+        # Utilisation de query_points car search est manquant dans les versions récentes du client (1.16+)
+        res = await qdrant_client.query_points(
             collection_name=INDEX_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit * SEARCH_MULTIPLIER
         )
+        return res.points
 
     try:
         # Exécution avec protection par Circuit Breaker et mécanisme de retry.

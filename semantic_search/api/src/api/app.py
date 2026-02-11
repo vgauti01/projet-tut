@@ -136,6 +136,8 @@ def serve():
     import uvicorn
     import os
     port = int(os.getenv("API_PORT", 8000))
+    # Active le hot reload si DEV_MODE=true (utile en développement)
+    reload = os.getenv("DEV_MODE", "false").lower() == "true"
     # Note: On utilise le module "api.app" pour l'import de l'application.
     # Ceci assume que le package est installé ou que le PYTHONPATH est correct.
-    uvicorn.run("api.app:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("api.app:app", host="0.0.0.0", port=port, reload=reload)

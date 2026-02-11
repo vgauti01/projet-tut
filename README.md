@@ -5,13 +5,13 @@
 ### 1. Objectifs du projet
 L'objectif est de mettre en place un système de recherche intelligente (RAG - Retrieval Augmented Generation) pour **deux cas d'usage à échelles différentes** :
 
-#### 🏢 Cas d'usage 1 : Usage Interne Entreprise
+#### Cas d'usage 1 : Usage Interne Entreprise
 - **Objectif** : Optimiser la recherche documentaire et la transmission de connaissances pour les collaborateurs.
 - **Échelle** : ~50 utilisateurs simultanés
 - **Volumétrie** : 300 000+ fichiers (SharePoint, Outlook, partages de fichiers)
 - **Déploiement** : Serveur centralisé on-premise
 
-#### 🔧 Cas d'usage 2 : Usage Machine Industrielle (SAV)
+#### Cas d'usage 2 : Usage Machine Industrielle (SAV)
 - **Objectif** : Rendre les clients autonomes pour le dépannage de premier niveau et la prise en main des équipements.
 - **Échelle** : 1 utilisateur à la fois (technicien sur site)
 - **Volumétrie** : Quelques dizaines de documents (manuels machine, procédures spécifiques)

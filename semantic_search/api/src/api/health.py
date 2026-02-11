@@ -5,7 +5,7 @@ import time
 from typing import Dict, Any
 from datetime import datetime
 import httpx
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from .config import MEILI_URL, MEILI_MASTER_KEY, QDRANT_URL, INDEX_NAME
 
 
@@ -69,20 +69,19 @@ class HealthChecker:
     async def check_qdrant(self) -> Dict[str, Any]:
         """Vérifie la connectivité et le statut de Qdrant."""
         start = time.time()
+        client = AsyncQdrantClient(url=QDRANT_URL, timeout=5.0)
         try:
-            client = QdrantClient(url=QDRANT_URL, timeout=5.0)
-
             # Vérifie les collections
-            collections = client.get_collections()
+            collections = await client.get_collections()
             latency_ms = (time.time() - start) * 1000
 
             collection_exists = any(c.name == INDEX_NAME for c in collections.collections)
 
             collection_info = None
             if collection_exists:
-                coll = client.get_collection(INDEX_NAME)
+                coll = await client.get_collection(INDEX_NAME)
                 collection_info = {
-                    "vectors_count": coll.vectors_count,
+                    "vectors_count": getattr(coll, "vectors_count", coll.points_count),
                     "points_count": coll.points_count
                 }
 
@@ -100,6 +99,8 @@ class HealthChecker:
                 "latency_ms": round(latency_ms, 2),
                 "error": str(e)
             }
+        finally:
+            await client.close()
 
     def check_llm(self) -> Dict[str, Any]:
         """Vérifie la disponibilité du LLM et les informations sur le modèle."""

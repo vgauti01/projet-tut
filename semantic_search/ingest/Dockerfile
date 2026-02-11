@@ -1,28 +1,100 @@
-# Multi-stage build pour optimiser la taille de l'image finale et garantir un environnement propre pour l'exécution de l'application.
+# ============================================================================
+# Stage 1: Construction et installation des dépendances
+# ============================================================================
+# Image de base optimisée pour uv avec Python 3.11 et Debian Bookworm
+# - ghcr.io/astral-sh: Registry GitHub officiel d'Astral (créateurs de uv)
+# - bookworm-slim: Debian 12 minimale (~150MB vs ~1GB pour l'image complète)
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 
-# Dossier de travail dans le conteneur de build pour installer les dépendances
+# Définit /app comme répertoire de travail pour toutes les commandes suivantes
+# Toutes les opérations COPY, RUN, etc. s'exécutent relativement à ce chemin
+# mkdir automatique: Docker crée le dossier s'il n'existe pas
 WORKDIR /app
 
-# Activer la compilation du bytecode pour améliorer les performances d'exécution et réduire la taille de l'image finale en évitant les fichiers .pyc inutiles.
-ENV UV_COMPILE_BYTECODE=1
+# Configuration des variables d'environnement pour uv
+# UV_COMPILE_BYTECODE=1: Précompile le code Python en bytecode (.pyc)
+#   → Améliore les performances au démarrage
+#   → Réduit la taille finale car pas de génération à l'exécution
+# UV_LINK_MODE=copy: Force la copie des fichiers au lieu de liens symboliques
+#   → Essentiel pour le multi-stage build (liens cassés entre stages)
+#   → Nécessaire avec un utilisateur non-root (permissions cohérentes)
+# UV_NO_PROGRESS=1: Désactive les barres de progression dans les logs
+#   → Logs plus propres en CI/CD (pas de rafraîchissement de lignes)
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_PROGRESS=1
 
-# Copier uniquement les fichiers nécessaires à l'installation
-COPY pyproject.toml uv.lock ./
+# Copie des fichiers de métadonnées et installation des dépendances
+# COPY nécessaire (pas --mount=type=bind) car pyproject.toml doit persister
+# pour le second RUN qui installe le projet local
+COPY pyproject.toml uv.lock README.md ./
 
-# Installer les dépendances dans un environnement virtuel isolé pour éviter les conflits et garantir que seules les dépendances nécessaires sont incluses dans l'image finale.
-# -- `--frozen` : Assure que les dépendances sont installées exactement comme spécifié dans le fichier de verrouillage, garantissant la reproductibilité.
-# -- `--no-install-project` : Empêche l'installation du projet lui-même, ce qui est inutile dans cette étape de build et permet de réduire la taille de l'image finale.
-# -- `--no-dev` : Exclut les dépendances de développement, ce qui est crucial pour minimiser la surface d'attaque et la taille de l'image finale.
-RUN uv sync --frozen --no-install-project --no-dev
+# Installation des dépendances Python avec montage temporaire des fichiers
+# --mount=type=cache: Cache UV (~500MB) persistant entre builds
+#   → Évite de retélécharger les packages Python déjà récupérés
+#   → Accélération drastique des rebuilds
+# uv sync: Synchronise l'environnement virtuel avec uv.lock
+# --frozen: Mode strict, échoue si uv.lock est désynchronisé
+#   → Garantit la reproductibilité (mêmes versions partout)
+#   → Détecte les modifications non commitées du lockfile
+# --no-install-project: N'installe pas le projet local à cette étape
+#   → Optimisation de cache : deps changent moins souvent que le code
+#   → Permet de reconstruire uniquement la dernière layer si code modifié
+# --no-dev: Exclut les dépendances de développement (pytest, ruff, etc.)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
 
-# =============================================================================
-# Stage 2: Image d'exécution minimale
-# =============================================================================
-# Utiliser une image de base plus légère pour l'exécution, réduisant ainsi la taille finale de l'image et minimisant les vulnérabilités potentielles.
+# Copie du code source dans l'image de build
+# COPY vs --mount=type=bind: Ici on DOIT copier car le code sera dans l'image finale
+# ./src: Contient le code applicatif Python
+COPY src ./src
+
+# Installation finale du projet local
+# Génère les scripts d'entrée définis dans pyproject.toml [project.scripts]
+# Sans --no-install-project cette fois : installe le package en mode "editable"
+# Le cache UV est réutilisé : seules les nouvelles dépendances sont téléchargées
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+# ============================================================================
+# Stage 2: Image d'exécution minimale (runtime)
+# ============================================================================
+# Image Python officielle Debian Bookworm slim (~150MB)
+# Séparation builder/runtime → image finale sans outils de compilation (~70% plus petite)
 FROM python:3.11-slim-bookworm
 
-# Mise à jour et installation des dépendances nécessaires pour l'exécution de l'application, tout en nettoyant les caches pour réduire la taille de l'image finale.
+# Configuration Python pour environnement de production
+# PYTHONUNBUFFERED=1: Force le mode non-bufferisé pour stdout/stderr
+#   → Logs en temps réel dans Docker/Kubernetes (sinon buffer de 4-8KB)
+#   → CRITIQUE pour le debugging : logs visibles immédiatement
+#   → Nécessaire pour les health checks et crash reports
+# PYTHONDONTWRITEBYTECODE=1: Désactive la génération de fichiers .pyc
+#   → Redondant car déjà compilés dans le builder (UV_COMPILE_BYTECODE=1)
+#   → Évite l'écriture inutile sur disque (performance en lecture seule)
+#   → Utile si volumes montés en read-only
+# PYTHONPATH="/app/src": Ajoute /app/src au chemin de recherche des modules
+#   → Permet les imports absolus: `from mon_module import X`
+#   → Évite les imports relatifs compliqués (../../..)
+# PATH="/app/.venv/bin:$PATH": Ajoute les binaires de l'env virtuel au PATH
+#   → Permet d'exécuter directement `api` au lieu de `/app/.venv/bin/api`
+#   → Les commandes Python utilisent l'env virtuel par défaut
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="/app/src" \
+    PATH="/app/.venv/bin:$PATH"
+
+# Mise à jour système et installation des dépendances runtime critiques
+# STRATÉGIE: Un seul RUN pour minimiser les layers Docker
+# apt-get update: Rafraîchit les index des paquets disponibles
+# apt-get upgrade -y: Met à jour TOUS les paquets installés
+# apt-get install -y --no-install-recommends:
+#   -y: Mode non-interactif (accepte automatiquement)
+#   --no-install-recommends: Installe UNIQUEMENT dépendances strictes
+#     → Exclut: Suggestions, docs, man pages, locales
+# ca-certificates: Autorités de certification SSL/TLS racines
+# rm -rf /var/lib/apt/lists/*: Nettoie métadonnées APT après installation
+# apt-get clean: Nettoie le cache APT des .deb téléchargés
+# RÉSULTAT: Layer minimale avec uniquement ca-certificates installé
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -30,22 +102,52 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# On crée un utilisateur non-root pour exécuter l'application, ce qui est une bonne pratique de sécurité pour limiter les permissions et réduire les risques en cas de compromission.
+# Création d'un utilisateur non-root pour l'exécution
+# Sécurité: principe du moindre privilège (least privilege)
+#   → Si conteneur compromis, attaquant n'est pas root
+#   → Limite les dégâts possibles (pas d'accès système)
+# groupadd -r: Crée un groupe système (-r = UID < 1000)
+#   -g 1000: GID fixe pour compatibilité avec volumes montés
+# useradd -r: Crée un utilisateur système
+#   -u 1000: UID fixe (évite les conflits de permissions avec l'hôte)
+#   -g appuser: Groupe principal
+#   -m: Crée le home directory (/home/appuser)
+#   -s /sbin/nologin: Pas de shell interactif (sécurité++)
+# UID/GID 1000: Convention pour le premier utilisateur non-système
+#   → Compatible avec la plupart des systèmes Linux
+#   → Facilite le montage de volumes (permissions cohérentes)
 RUN groupadd -r ingestuser && \
-    useradd -r -g ingestuser -u 1001 -m -s /bin/bash ingestuser
+    useradd -r -g ingestuser -u 1001 -m -s /sbin/nologin ingestuser
 
-# Copier les dépendances installées depuis le conteneur de build vers l'image d'exécution, assurant que seules les dépendances nécessaires sont incluses, ce qui réduit la taille de l'image finale et améliore la sécurité.
-COPY --from=builder /app/.venv /app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
 
-# Définir le répertoire de travail pour l'application, garantissant que tous les fichiers nécessaires sont accessibles et que les commandes s'exécutent dans le bon contexte.
+# Création des répertoires applicatifs avec permissions appropriées
+# Crée aussi le répertoire .cache pour les modèles Hugging Face et Sentence Transformers
+RUN mkdir -p /app/logs /app/data /home/ingestuser/.cache && \
+    chown -R ingestuser:ingestuser /app /home/ingestuser/.cache
+
+# Copie de l'environnement virtuel depuis le stage builder
+# --from=builder: Référence le stage nommé "builder" (multi-stage build)
+# --chown=ingestuser:ingestuser: Définit propriétaire ET groupe immédiatement
+COPY --from=builder --chown=ingestuser:ingestuser /app/.venv /app/.venv
+
+# Définition du répertoire de travail pour l'application
 WORKDIR /app
 
-# Copier le code de l'application en définissant le propriétaire sur l'utilisateur non-root pour maintenir les bonnes pratiques de sécurité.
-COPY --chown=ingestuser:ingestuser . /app/
+# Copie sélective du code source avec ownership approprié
+COPY --chown=ingestuser:ingestuser src/ /app/src/
+COPY --chown=ingestuser:ingestuser pyproject.toml /app/
 
-# Changer l'utilisateur pour exécuter l'application avec des permissions limitées.
+# Basculement vers l'utilisateur non-root pour toute exécution
 USER ingestuser
 
-# Exécuter l'ingestion en utilisant le script python écrit et installé
+# Commande par défaut au démarrage du conteneur
+# "ingest": Script défini dans pyproject.toml [project.scripts]
+#   → Généré automatiquement par uv/pip lors de l'installation
+#   → Équivalent à exécuter le point d'entrée de l'application
+# Forme exec (liste): Recommandée pour gestion correcte des signaux
+#   → SIGTERM/SIGINT transmis directement au processus Python
+#   → Shutdown gracieux (fermeture connexions DB, flush logs)
+# Alternative forme shell: CMD ingest
+#   → Utilise /bin/sh -c "ingest" → processus PID 1 = shell, pas Python
+#   → Mauvaise gestion des signaux (dangereux en production)
 CMD ["ingest"]

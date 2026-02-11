@@ -12,13 +12,18 @@ from .settings import MEILI_URL, MEILI_MASTER_KEY, INDEX_NAME, DOCS_DIR, CHUNK_S
 from .settings import EMBED_MODEL, QDRANT_URL
 from .text_utils import chunk_text
 from .extractors import get_extractor, supported_extensions
+from .stopwords import FRENCH_STOP_WORDS
 
 # Configuration du logging pour afficher les messages d'information et d'erreur avec un format de timestamp.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Chargement du modèle de génération d'embeddings à partir de la bibliothèque Sentence Transformers, en utilisant le nom du modèle spécifié dans les paramètres.
-model = SentenceTransformer(EMBED_MODEL)
+# Utilise HF_CACHE_DIR si défini pour charger depuis les modèles pré-téléchargés
+import os
+cache_dir = os.getenv("HF_CACHE_DIR")
+logger.info(f"Cache directory: {cache_dir or 'default (~/.cache/huggingface)'}")
+model = SentenceTransformer(EMBED_MODEL, cache_folder=cache_dir)
 
 def ensure_meili_index():
     """ Vérifie si l'index Meilisearch existe, et le crée avec les paramètres appropriés s'il n'existe pas. """
@@ -36,12 +41,15 @@ def ensure_meili_index():
         r.raise_for_status()
 
     # Configure les paramètres de l'index pour définir les attributs recherchables, filtrables et affichés.
+    # Note: Les stop words sont configurés mais s'appliquent uniquement lors de l'indexation.
+    # La normalisation des requêtes côté API (search.py) complète cette configuration.
     requests.patch(f"{MEILI_URL}/indexes/{INDEX_NAME}/settings",
                    headers=headers,
                    json={
                        "searchableAttributes": ["content", "title", "path"],
                        "filterableAttributes": ["title", "path", "page", "source_type"],
-                       "displayedAttributes": ["content", "title", "path", "page", "chunk_id", "source_type"]
+                       "displayedAttributes": ["content", "title", "path", "page", "chunk_id", "source_type"],
+                       "stopWords": FRENCH_STOP_WORDS
                    })
 
 def ensure_qdrant_collection():

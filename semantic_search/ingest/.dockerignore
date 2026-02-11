@@ -1,0 +1,59 @@
+# Contrôle de version
+.git
+.gitignore
+.gitattributes
+
+# Environnements Python
+.venv
+venv/
+ENV/
+env/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Tests et couverture
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Linters et formatters
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+Jenkinsfile
+
+# Secrets et configuration locale
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# Fichiers temporaires
+*.log
+*.tmp
+tmp/
+temp/

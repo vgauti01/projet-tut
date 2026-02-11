@@ -1,0 +1,42 @@
+# =============================================================================
+# Docker Compose Override - Mode Développement
+# =============================================================================
+# Ce fichier est automatiquement chargé par `docker compose up`
+# Il surcharge la configuration de compose.yml pour le développement local.
+#
+# Utilisation :
+#   - docker compose up        → Utilise compose.yml + compose.override.yml
+#   - docker compose down      → Stoppe les services
+#
+# Pour désactiver ce fichier en production :
+#   - docker compose -f compose.yml up
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # API - Configuration développement avec hot reload
+  # ===========================================================================
+  api:
+    # Monte le code source en lecture/écriture pour permettre les modifications en temps réel
+    # IMPORTANT: Le volume monte src/ directement pour que les changements soient détectés
+    volumes:
+      - ./api/src:/app/src:rw
+
+    # Active le hot reload via la variable DEV_MODE
+    # ATTENTION: Le hot reload double la consommation RAM (fork process)
+    # Désactiver si RAM limitée (<6GB)
+    environment:
+      - DEV_MODE=false
+
+    # Désactive le healthcheck en dev pour éviter les redémarrages intempestifs
+    # pendant les modifications de code
+    healthcheck:
+      disable: true
+
+  # ===========================================================================
+  # Ingestor - Configuration développement
+  # ===========================================================================
+  ingestor:
+    # Monte le code source de l'ingestor pour faciliter les modifications
+    volumes:
+      - ./:/workdir:rw  # Remplace le :ro par :rw

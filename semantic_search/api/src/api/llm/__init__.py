@@ -10,15 +10,20 @@ from .local import LocalLLMService
 # - get_llm_service: une fonction de fabrique pour obtenir le meilleur service de langage disponible.
 __all__ = ["LLMService", "LLMConfig", "ChatMessage", "LocalLLMService", "get_llm_service"]
 
+# Cache global pour le service LLM afin d'éviter de recharger le modèle à chaque requête.
+# Recharger un modèle de plusieurs Go est une opération lourde qui impacterait gravement les performances.
+_llm_service_cache = None
+
 def get_llm_service() -> LLMService:
     """ 
     Factory qui retourne le meilleur service de langage disponible.
-    Actuellement, il n'y a qu'une implémentation locale, mais cette fonction peut être étendue à l'avenir pour inclure d'autres services de langage (par exemple, des services basés sur le cloud).
+    Utilise un cache interne pour retourner toujours la même instance (Singleton).
     """
+    global _llm_service_cache
+    if _llm_service_cache is not None:
+        return _llm_service_cache
+
     from ..config import LLM_MODEL_PATH
-    service = LocalLLMService(LLM_MODEL_PATH)
-    # Si le service local est disponible (par exemple, si le modèle est chargé correctement), on le retourne.
-    if service.is_available():
-        return service
-    # Fallback: retourner quand même le service local. 
-    return service
+    _llm_service_cache = LocalLLMService(LLM_MODEL_PATH)
+    
+    return _llm_service_cache

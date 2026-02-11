@@ -21,13 +21,14 @@ services:
   # Meilisearch est un moteur de recherche rapide et léger, utilisé pour l'indexation et la recherche de texte.
   # Il est configuré pour stocker ses données dans un volume persistant et expose son API sur le port 7700.
   meilisearch:
-    image: getmeili/meilisearch:v1.12
+    image: getmeili/meilisearch:v1.35
     container_name: meilisearch
     restart: unless-stopped
     networks:
       - backend
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_EXPERIMENTAL_ENABLE_METRICS=true
     volumes:
       - ./data/indexes/meili:/meili_data
     ports:
@@ -45,7 +46,7 @@ services:
       - no-new-privileges:true
 
   qdrant:
-    image: qdrant/qdrant:v1.12.1
+    image: qdrant/qdrant:v1.16
     container_name: qdrant
     restart: unless-stopped
     networks:
@@ -55,13 +56,13 @@ services:
       - ./data/indexes/qdrant:/qdrant/storage
     ports:
       - "${QDRANT_PORT:-6333}:6333"
-    # Le healthcheck vérifie que Qdrant est capable de répondre à une requête HTTP sur son endpoint de santé.
-    # Cela permet à Docker de redémarrer automatiquement le conteneur si Qdrant devient non réactif.
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:6333/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
+    # Le healthcheck est désactivé car l'image Qdrant n'inclut pas wget/curl
+    # Le service démarre correctement et répond sur le port 6333
+    # healthcheck:
+    #   test: ["CMD-SHELL", "timeout 3 sh -c '</dev/tcp/127.0.0.1/6333' || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
     security_opt:
       # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans Qdrant.
       - no-new-privileges:true
@@ -88,6 +89,7 @@ services:
       - INDEX_NAME=${INDEX_NAME:-docs}
       - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       - RERANK_MODEL=${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      - HF_CACHE_DIR=/app/models
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173}}
       - TOP_K=${TOP_K:-5}
       - RRF_K=${RRF_K:-60}
@@ -107,11 +109,11 @@ services:
       meilisearch:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # Monte les modèles de langage locaux en lecture seule pour permettre à l'API de les charger sans risquer de les modifier.
+      # Monte les modèles (LLM + Hugging Face) en lecture seule
       - ./data/models:/app/models:ro
       # Monte les logs de l'API dans un volume persistant pour faciliter le débogage et la surveillance, tout en évitant d'écrire directement sur le disque de l'hôte.
       - api_logs:/app/logs
@@ -148,6 +150,7 @@ services:
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       - RERANK_MODEL=${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      - HF_CACHE_DIR=/workdir/data/models
     volumes:
       - ./:/workdir:ro
     depends_on:
@@ -155,7 +158,7 @@ services:
       meilisearch:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
     security_opt:
       # Empêche le conteneur d'obtenir de nouveaux privilèges, renforçant la sécurité même en cas de vulnérabilité dans l'ingestor.
       - no-new-privileges:true
@@ -202,11 +205,20 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
     volumes:
       # Monte le fichier de configuration Prometheus en lecture seule.
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # Le volume persistant pour les données de Prometheus (métriques, règles, etc.).
       - prometheus_data:/prometheus
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "$$MEILI_MASTER_KEY" > /tmp/meili_key && \
+        exec /bin/prometheus "$$@"
+      - "--"
     command:
       # Définit le fichier de configuration à utiliser pour Prometheus.
       - '--config.file=/etc/prometheus/prometheus.yml'

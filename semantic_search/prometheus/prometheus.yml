@@ -39,6 +39,8 @@ scrape_configs:
       - targets: ['meilisearch:7700']
     metrics_path: '/metrics'
     scrape_interval: 30s
+    # Utilise le fichier généré par l'entrypoint Docker depuis la variable d'environnement
+    bearer_token_file: '/tmp/meili_key'
 
   # Métriques de Qdrant (Base de données vectorielle)
   - job_name: 'qdrant'
