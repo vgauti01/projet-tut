@@ -2,181 +2,770 @@
   "title": "RAG Search Performance",
   "tags": ["rag", "search", "performance"],
   "timezone": "browser",
-  "schemaVersion": 16,
-  "version": 0,
+  "schemaVersion": 39,
+  "version": 1,
   "refresh": "10s",
+  "uid": "rag-search-performance",
+  "editable": true,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
   "panels": [
     {
+      "type": "row",
+      "id": 100,
+      "title": "KPIs",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "API Process CPU Usage",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 12,
-        "h": 8
-      },
+      "title": "Request Rate",
+      "description": "Taux total de requêtes par seconde",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "rate(process_cpu_seconds_total{job=\"api\"}[5m])",
-          "legendFormat": "CPU Usage",
+          "expr": "sum(rate(api_requests_total[5m]))",
+          "legendFormat": "",
           "refId": "A"
         }
       ],
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
-          "color": {
-            "mode": "palette-classic"
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
           }
         }
       }
     },
     {
       "id": 2,
-      "title": "API Process Memory Usage",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 12,
-        "h": 8
-      },
+      "title": "Search Rate",
+      "description": "Taux de requêtes /ask par seconde",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "process_resident_memory_bytes{job=\"api\"}",
-          "legendFormat": "Memory RSS",
+          "expr": "sum(rate(api_requests_total{endpoint=\"/ask\"}[5m]))",
+          "legendFormat": "",
           "refId": "A"
         }
       ],
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
-          "color": {
-            "mode": "palette-classic"
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
           }
         }
       }
     },
     {
       "id": 3,
-      "title": "Meilisearch Request Rate",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 0,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
+      "title": "Chat Rate",
+      "description": "Taux de requêtes /chat par seconde",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "rate(meilisearch_http_requests_total[5m])",
-          "legendFormat": "{{method}} {{route}}",
+          "expr": "sum(rate(chat_requests_total[5m]))",
+          "legendFormat": "",
           "refId": "A"
         }
       ],
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "color": {
-            "mode": "palette-classic"
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "purple", "value": null }
+            ]
           }
         }
       }
     },
     {
       "id": 4,
-      "title": "Meilisearch Database Size",
-      "type": "timeseries",
-      "gridPos": {
-        "x": 12,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
+      "title": "P50 Latency",
+      "description": "Latence médiane des requêtes API",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "meilisearch_db_size_bytes",
-          "legendFormat": "Database Size",
+          "expr": "histogram_quantile(0.50, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "",
           "refId": "A"
         }
       ],
       "options": {
-        "legend": {
-          "showLegend": true,
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
-          "color": {
-            "mode": "palette-classic"
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
           }
         }
       }
     },
     {
       "id": 5,
-      "title": "Service Status Overview",
+      "title": "P95 Latency",
+      "description": "Latence P95 des requêtes API",
       "type": "stat",
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 24,
-        "h": 4
-      },
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "up{job=\"meilisearch\"}",
+          "expr": "histogram_quantile(0.95, sum(rate(api_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Error Rate",
+      "description": "Taux d'erreurs par seconde",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_errors_total[5m]))",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 101,
+      "title": "Latence requêtes",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 7,
+      "title": "Duration par endpoint (p50/p95/p99)",
+      "description": "Latence des requêtes par endpoint et percentile",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(api_request_duration_seconds_bucket[5m])) by (le, endpoint))",
+          "legendFormat": "p50 {{endpoint}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(api_request_duration_seconds_bucket[5m])) by (le, endpoint))",
+          "legendFormat": "p95 {{endpoint}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(api_request_duration_seconds_bucket[5m])) by (le, endpoint))",
+          "legendFormat": "p99 {{endpoint}}",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "auto"
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Request rate par endpoint & status",
+      "description": "Taux de requêtes ventilé par endpoint et statut",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_requests_total[5m])) by (endpoint, status)",
+          "legendFormat": "{{endpoint}} [{{status}}]",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 102,
+      "title": "Pipeline recherche",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "title": "Latence par étape (p95 stacked)",
+      "description": "Latence P95 de chaque étape du pipeline de recherche",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 15, "w": 10, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket{stage=\"meili\"}[5m])) by (le))",
           "legendFormat": "Meilisearch",
           "refId": "A"
         },
         {
-          "expr": "up{job=\"qdrant\"}",
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket{stage=\"qdrant\"}[5m])) by (le))",
+          "legendFormat": "Qdrant",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket{stage=\"rrf\"}[5m])) by (le))",
+          "legendFormat": "RRF Fusion",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket{stage=\"rerank\"}[5m])) by (le))",
+          "legendFormat": "Reranking",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "stacking": { "mode": "normal" },
+            "lineInterpolation": "smooth"
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Comparaison p50/p95 par étape",
+      "description": "Comparaison des percentiles par étape du pipeline",
+      "type": "barchart",
+      "gridPos": { "x": 10, "y": 15, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(search_duration_seconds_bucket[5m])) by (le, stage))",
+          "legendFormat": "p50 {{stage}}",
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket[5m])) by (le, stage))",
+          "legendFormat": "p95 {{stage}}",
+          "refId": "B",
+          "instant": true
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "orientation": "horizontal",
+        "barWidth": 0.8,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "showValue": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Distribution modes de recherche",
+      "description": "Répartition hybrid / meili_only / qdrant_only",
+      "type": "piechart",
+      "gridPos": { "x": 18, "y": 15, "w": 6, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(search_requests_total) by (mode)",
+          "legendFormat": "{{mode}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "right" },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 103,
+      "title": "Inférence modèles",
+      "gridPos": { "x": 0, "y": 23, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 12,
+      "title": "Durée embed / rerank (p50/p95)",
+      "description": "Latence d'inférence des modèles d'embedding et de reranking",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(model_inference_duration_seconds_bucket{model_type=\"embed\"}[5m])) by (le))",
+          "legendFormat": "Embed p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(model_inference_duration_seconds_bucket{model_type=\"embed\"}[5m])) by (le))",
+          "legendFormat": "Embed p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(model_inference_duration_seconds_bucket{model_type=\"rerank\"}[5m])) by (le))",
+          "legendFormat": "Rerank p50",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(model_inference_duration_seconds_bucket{model_type=\"rerank\"}[5m])) by (le))",
+          "legendFormat": "Rerank p95",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Mémoire modèles",
+      "description": "Utilisation mémoire estimée par modèle",
+      "type": "gauge",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "model_memory_bytes",
+          "legendFormat": "{{model_name}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "continuous-GrYlRd" },
+          "min": 0,
+          "max": 1073741824,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 268435456 },
+              { "color": "red", "value": 536870912 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 104,
+      "title": "Chat & LLM",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 14,
+      "title": "Pipeline chat duration",
+      "description": "Durée totale du pipeline chat par chemin (llm/fallback)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 33, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(chat_pipeline_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "p50 {{path}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chat_pipeline_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "p95 {{path}}",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15
+          }
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Time-to-first-token & total generation",
+      "description": "Durée TTFT et génération totale LLM",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 33, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(llm_generation_duration_seconds_bucket{phase=\"time_to_first_token\"}[5m])) by (le))",
+          "legendFormat": "TTFT p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(llm_generation_duration_seconds_bucket{phase=\"time_to_first_token\"}[5m])) by (le))",
+          "legendFormat": "TTFT p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(llm_generation_duration_seconds_bucket{phase=\"total_generation\"}[5m])) by (le))",
+          "legendFormat": "Total gen p50",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(llm_generation_duration_seconds_bucket{phase=\"total_generation\"}[5m])) by (le))",
+          "legendFormat": "Total gen p95",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Token throughput",
+      "description": "Tokens LLM générés par seconde",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 33, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(llm_tokens_generated_total[5m])",
+          "legendFormat": "Tokens/s",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "purple" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "gradientMode": "scheme"
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 105,
+      "title": "Erreurs & résilience",
+      "gridPos": { "x": 0, "y": 41, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 17,
+      "title": "Error rate par type",
+      "description": "Taux d'erreurs ventilé par type et endpoint",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 42, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_errors_total[5m])) by (error_type, endpoint)",
+          "legendFormat": "{{error_type}} [{{endpoint}}]",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Circuit breaker states",
+      "description": "État des circuit breakers (0=fermé, 1=ouvert, 2=semi-ouvert)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 42, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "circuit_breaker_state",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "min": 0,
+          "max": 2,
+          "custom": {
+            "drawStyle": "stepAfter",
+            "fillOpacity": 20
+          },
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "CLOSED" }, "1": { "text": "OPEN" }, "2": { "text": "HALF_OPEN" } } }
+          ]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Distribution nombre de résultats",
+      "description": "Histogramme du nombre de résultats retournés par recherche",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 42, "w": 8, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(search_results_count_bucket[5m])) by (le))",
+          "legendFormat": "p50 résultats",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_results_count_bucket[5m])) by (le))",
+          "legendFormat": "p95 résultats",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(search_results_count_sum[5m])) / sum(rate(search_results_count_count[5m]))",
+          "legendFormat": "Moyenne",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "id": 106,
+      "title": "Santé dépendances",
+      "gridPos": { "x": 0, "y": 50, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 20,
+      "title": "Service status",
+      "description": "Statut de santé des services (UP/DOWN)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 51, "w": 8, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "dependency_up{service=\"meilisearch\"}",
+          "legendFormat": "Meilisearch",
+          "refId": "A"
+        },
+        {
+          "expr": "dependency_up{service=\"qdrant\"}",
           "legendFormat": "Qdrant",
           "refId": "B"
         },
@@ -187,15 +776,10 @@
         }
       ],
       "options": {
-        "reduceOptions": {
-          "values": false,
-          "fields": "",
-          "calcs": ["lastNotNull"]
-        },
-        "textMode": "auto",
-        "colorMode": "value",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto",
+        "textMode": "auto",
         "orientation": "horizontal"
       },
       "fieldConfig": {
@@ -203,29 +787,88 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
             ]
           },
           "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DOWN"
-                },
-                "1": {
-                  "text": "UP"
-                }
-              }
-            }
+            { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
           ]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Latence dépendances",
+      "description": "Latence de réponse des dépendances (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 51, "w": 8, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "dependency_latency_milliseconds",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Durée recherche : chat vs directe",
+      "description": "Comparaison de la durée de recherche hybride dans le contexte chat vs /ask",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 51, "w": 8, "h": 6 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(chat_search_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "Chat search p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chat_search_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "Chat search p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(search_duration_seconds_bucket{stage=\"total\"}[5m])) by (le))",
+          "legendFormat": "Direct search p50",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(search_duration_seconds_bucket{stage=\"total\"}[5m])) by (le))",
+          "legendFormat": "Direct search p95",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 15
+          }
         }
       }
     }

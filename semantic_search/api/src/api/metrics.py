@@ -90,6 +90,38 @@ DEPENDENCY_LATENCY = Gauge(
     ['service']
 )
 
+# Chat & LLM
+CHAT_REQUESTS_TOTAL = Counter(
+    'chat_requests_total',
+    'Nombre total de requêtes chat',
+    ['path']  # "llm" | "fallback"
+)
+
+LLM_GENERATION_DURATION = Histogram(
+    'llm_generation_duration_seconds',
+    'Durée de génération LLM par phase',
+    ['phase'],  # "time_to_first_token" | "total_generation"
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+)
+
+LLM_TOKENS_TOTAL = Counter(
+    'llm_tokens_generated_total',
+    'Nombre total de tokens générés par le LLM'
+)
+
+CHAT_SEARCH_DURATION = Histogram(
+    'chat_search_duration_seconds',
+    'Durée de la recherche hybride dans le contexte chat',
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+)
+
+CHAT_PIPELINE_DURATION = Histogram(
+    'chat_pipeline_duration_seconds',
+    'Durée totale du pipeline chat (recherche + génération)',
+    ['path'],  # "llm" | "fallback"
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0)
+)
+
 # Informations sur l'application
 APP_INFO = Info('app_info', 'Informations sur l\'application')
 APP_INFO.info({
@@ -202,6 +234,57 @@ class ModelMetrics:
             duration = time.time() - self.start_time
             MODEL_INFERENCE_LATENCY.labels(model_type=self.model_type).observe(duration)
         return False
+
+
+class ChatMetrics:
+    """
+    Objet stateful pour suivre les métriques du pipeline chat.
+    Pas un context manager car le générateur SSE est async et lazy.
+    """
+
+    def __init__(self):
+        self.pipeline_start = time.time()
+        self.path = "unknown"
+        self._gen_start = None
+        self._first_token_recorded = False
+        self._token_count = 0
+
+    def record_search_duration(self, duration: float):
+        """Enregistre la durée de la recherche hybride dans le contexte chat."""
+        CHAT_SEARCH_DURATION.observe(duration)
+
+    def set_path(self, path: str):
+        """Définit le chemin emprunté : 'llm' ou 'fallback'."""
+        self.path = path
+
+    def start_generation(self):
+        """Marque le début de la génération LLM."""
+        self._gen_start = time.time()
+
+    def record_first_token(self):
+        """Enregistre le temps jusqu'au premier token."""
+        if not self._first_token_recorded and self._gen_start:
+            ttft = time.time() - self._gen_start
+            LLM_GENERATION_DURATION.labels(phase="time_to_first_token").observe(ttft)
+            self._first_token_recorded = True
+
+    def record_token(self):
+        """Incrémente le compteur interne de tokens."""
+        self._token_count += 1
+
+    def finish_generation(self):
+        """Enregistre la durée totale de génération et le nombre de tokens."""
+        if self._gen_start:
+            total = time.time() - self._gen_start
+            LLM_GENERATION_DURATION.labels(phase="total_generation").observe(total)
+            if self._token_count > 0:
+                LLM_TOKENS_TOTAL.inc(self._token_count)
+
+    def finish(self):
+        """Enregistre la durée totale du pipeline et incrémente le compteur de requêtes."""
+        duration = time.time() - self.pipeline_start
+        CHAT_PIPELINE_DURATION.labels(path=self.path).observe(duration)
+        CHAT_REQUESTS_TOTAL.labels(path=self.path).inc()
 
 
 def update_circuit_breaker_metrics(service: str, state: str, failure: bool = False):
