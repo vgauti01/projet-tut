@@ -3,9 +3,6 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from .hf_compat import patch_hf_hub
-
-patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 
@@ -54,67 +51,35 @@ class PptxExtractor(Extractor):
         try:
             converter = self._get_converter()
 
-            # Conversion du document avec Docling
             result = converter.convert(str(file_path))
-
-            # Extraction du texte complet avec structure préservée
             full_markdown = result.document.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path}")
                 return
 
-            # Pour PPTX avec Docling, on peut essayer de détecter les pages
-            # Si le document a des pages identifiées, les traiter séparément
-            if hasattr(result.document, 'pages') and result.document.pages:
-                for page_idx, page in enumerate(result.document.pages, start=1):
-                    try:
-                        # Extraction du contenu de la page
-                        page_markdown = page.export_to_markdown() if hasattr(page, 'export_to_markdown') else str(page)
+            # Tente de splitter par marqueurs de slide (--- ou # headers)
+            slides = self._split_slides_from_markdown(full_markdown)
 
-                        metadata = {
-                            "source_type": "pptx",
-                            "extraction_method": "docling",
-                            "slide_number": page_idx,
-                        }
-
-                        # Ajout du titre de la slide si disponible
-                        if hasattr(page, 'title') and page.title:
-                            metadata["slide_title"] = page.title
-
-                        yield ExtractedPage(
-                            page_number=page_idx,
-                            text=page_markdown,
-                            metadata=metadata,
-                        )
-                    except Exception as e:
-                        logger.error(f"Erreur lors de l'extraction de la slide {page_idx}: {e}")
-                        continue
-            else:
-                # Fallback : traiter comme un document unique
-                # On peut essayer de splitter par marqueurs de slide
-                slides = self._split_slides_from_markdown(full_markdown)
-
-                if slides:
-                    for idx, slide_text in enumerate(slides, start=1):
-                        yield ExtractedPage(
-                            page_number=idx,
-                            text=slide_text,
-                            metadata={
-                                "source_type": "pptx",
-                                "extraction_method": "docling",
-                            },
-                        )
-                else:
-                    # Dernier fallback : tout comme une seule page
+            if slides:
+                for idx, slide_text in enumerate(slides, start=1):
                     yield ExtractedPage(
-                        page_number=1,
-                        text=full_markdown,
+                        page_number=idx,
+                        text=slide_text,
                         metadata={
                             "source_type": "pptx",
                             "extraction_method": "docling",
                         },
                     )
+            else:
+                yield ExtractedPage(
+                    page_number=1,
+                    text=full_markdown,
+                    metadata={
+                        "source_type": "pptx",
+                        "extraction_method": "docling",
+                    },
+                )
 
         except Exception as e:
             logger.error(f"Impossible d'extraire le fichier PPTX {file_path} avec Docling: {e}")

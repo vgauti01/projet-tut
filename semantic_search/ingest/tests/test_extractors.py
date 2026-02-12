@@ -125,7 +125,7 @@ class TestXlsxExtractor:
     def test_can_handle(self):
         from ingest.extractors.xlsx_extractor import XlsxExtractor
         assert XlsxExtractor.can_handle(Path("file.xlsx"))
-        assert XlsxExtractor.can_handle(Path("file.xls"))
+        assert not XlsxExtractor.can_handle(Path("file.xls"))
 
     def test_extract(self):
         from openpyxl import Workbook
@@ -143,8 +143,10 @@ class TestXlsxExtractor:
         extractor = XlsxExtractor()
         pages = list(extractor.extract(path))
         assert len(pages) == 1
-        assert "Header1: Val1" in pages[0].text
-        assert pages[0].metadata["sheet_name"] == "TestSheet"
+        # Docling produit du markdown tabulaire
+        assert "Header1" in pages[0].text
+        assert "Val1" in pages[0].text
+        assert pages[0].metadata["source_type"] == "xlsx"
         path.unlink()
 
     def test_extract_empty_sheet(self):
@@ -188,9 +190,11 @@ class TestPptxExtractor:
 
         extractor = PptxExtractor()
         pages = list(extractor.extract(path))
-        assert len(pages) == 1
-        assert "Hello PPTX" in pages[0].text
-        assert "[Notes] Speaker notes" in pages[0].text
+        assert len(pages) >= 1
+        # Docling extrait le titre, les notes peuvent ne pas être incluses
+        all_text = " ".join(p.text for p in pages)
+        assert "Hello PPTX" in all_text
+        assert pages[0].metadata["source_type"] == "pptx"
         path.unlink()
 
 

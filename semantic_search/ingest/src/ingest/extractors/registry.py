@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Optional, List
+from typing import Dict, Optional, List
 
 from .base import Extractor
 from .pdf_extractor import PdfExtractor
@@ -11,10 +11,9 @@ from .csv_extractor import CsvExtractor
 from .txt_extractor import TxtExtractor
 from .image_extractor import ImageExtractor
 
-# Configure le logger pour ce module, ce qui permet de suivre les opérations d'extraction et de diagnostiquer les problèmes éventuels
 logger = logging.getLogger(__name__)
 
-# Liste des classes d'extracteurs disponibles, chacune spécialisée dans un type de fichier différent (PDF, DOCX, XLSX, PPTX, CSV, TXT, Images).
+# Liste des classes d'extracteurs disponibles
 _EXTRACTORS: List[type[Extractor]] = [
     PdfExtractor,
     DocxExtractor,
@@ -25,12 +24,18 @@ _EXTRACTORS: List[type[Extractor]] = [
     ImageExtractor,
 ]
 
+# Cache singleton : une instance par classe d'extracteur
+# Évite de recréer un DocumentConverter Docling (coûteux) pour chaque fichier
+_instances: Dict[type, Extractor] = {}
+
 
 def get_extractor(file_path: Path) -> Optional[Extractor]:
-    """Retourne une instance d'extracteur pour le fichier donné, ou None si non supporté."""
+    """Retourne une instance (singleton) d'extracteur pour le fichier donné, ou None si non supporté."""
     for extractor_cls in _EXTRACTORS:
         if extractor_cls.can_handle(file_path):
-            return extractor_cls()
+            if extractor_cls not in _instances:
+                _instances[extractor_cls] = extractor_cls()
+            return _instances[extractor_cls]
     return None
 
 

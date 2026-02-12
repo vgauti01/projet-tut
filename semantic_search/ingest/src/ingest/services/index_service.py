@@ -20,7 +20,7 @@ def get_qdrant_client(url: str):
     try:
         yield client
     finally:
-        # Nettoyage des ressources du client
+        client.close()
         logger.debug("Fermeture du client Qdrant")
 
 

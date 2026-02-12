@@ -3,9 +3,6 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from .hf_compat import patch_hf_hub
-
-patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 

@@ -3,9 +3,6 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from .hf_compat import patch_hf_hub
-
-patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +19,7 @@ class XlsxExtractor(Extractor):
 
     Chaque feuille de calcul est traitée comme une page distincte.
     """
-    SUPPORTED_EXTENSIONS = [".xlsx", ".xls"]
+    SUPPORTED_EXTENSIONS = [".xlsx"]
 
     def __init__(self):
         self._converter = None
@@ -55,66 +52,21 @@ class XlsxExtractor(Extractor):
         try:
             converter = self._get_converter()
 
-            # Conversion du document avec Docling
             result = converter.convert(str(file_path))
-
-            # Docling organise le contenu par pages/sections
-            # Pour Excel, chaque feuille est considérée comme une section
-
-            # Extraction du texte complet avec structure préservée
             full_markdown = result.document.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path}")
                 return
 
-            # Docling peut séparer par tables, on va essayer d'extraire les tables individuellement
-            tables = []
-            if hasattr(result.document, 'tables'):
-                tables = result.document.tables
-
-            # Si on a des tables explicites, les traiter séparément
-            if tables:
-                for idx, table in enumerate(tables, start=1):
-                    try:
-                        # Conversion de la table en markdown
-                        table_markdown = table.export_to_markdown() if hasattr(table, 'export_to_markdown') else str(table)
-
-                        # Récupération des métadonnées de la table
-                        metadata = {
-                            "source_type": "xlsx",
-                            "table_index": idx,
-                        }
-
-                        # Ajout du nom de la table si disponible
-                        if hasattr(table, 'caption') and table.caption:
-                            metadata["table_name"] = table.caption
-
-                        # Ajout des dimensions si disponibles
-                        if hasattr(table, 'num_rows'):
-                            metadata["num_rows"] = table.num_rows
-                        if hasattr(table, 'num_cols'):
-                            metadata["num_cols"] = table.num_cols
-
-                        yield ExtractedPage(
-                            page_number=idx,
-                            text=table_markdown,
-                            metadata=metadata,
-                        )
-                    except Exception as e:
-                        logger.error(f"Erreur lors de l'extraction de la table {idx} de {file_path}: {e}")
-                        continue
-            else:
-                # Fallback : si pas de tables explicites, utiliser le markdown complet
-                # On suppose que c'est une seule "page"
-                yield ExtractedPage(
-                    page_number=1,
-                    text=full_markdown,
-                    metadata={
-                        "source_type": "xlsx",
-                        "extraction_method": "docling_full_document",
-                    },
-                )
+            yield ExtractedPage(
+                page_number=1,
+                text=full_markdown,
+                metadata={
+                    "source_type": "xlsx",
+                    "extraction_method": "docling",
+                },
+            )
 
         except Exception as e:
             logger.error(f"Impossible d'extraire le fichier Excel {file_path} avec Docling: {e}")

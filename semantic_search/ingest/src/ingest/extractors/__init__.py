@@ -1,3 +1,8 @@
+from .hf_compat import patch_hf_hub
+
+# Patch HuggingFace Hub AVANT tout import de Docling (symlinks Windows)
+patch_hf_hub()
+
 from .base import Extractor, ExtractedPage
 from .registry import get_extractor, supported_extensions
 
