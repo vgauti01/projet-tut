@@ -8,6 +8,7 @@ import { useChat } from "./hooks/useChat";
 import { useSessions } from "./hooks/useSessions";
 import { AlertCircle, Sparkles, Menu } from "lucide-react";
 import { AppMode, SearchResponse, ChatSession } from "./types";
+import { TimingBar } from "./components/TimingBar";
 
 function App() {
   const [mode, setMode] = useState<AppMode>("chat");
@@ -164,11 +165,19 @@ function App() {
 
             {results && !loading && (
               <div className="w-full max-w-4xl mt-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <div className="flex items-center gap-2 mb-6 text-blue-400 font-medium px-1">
+                <div className="flex items-center gap-2 mb-4 text-blue-400 font-medium px-1">
                   <Sparkles size={16} />
                   <span>
                     AI Insights found in {results.sources.length} documents
                   </span>
+                </div>
+
+                {/* Timing bar for search results */}
+                <div className="mb-6 px-1">
+                  <TimingBar
+                    timings={results.timings}
+                    searchMode={results.search_mode}
+                  />
                 </div>
 
                 <div className="grid gap-4">

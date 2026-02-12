@@ -105,7 +105,7 @@ async def ask(req: AskRequest):
     limit = req.limit or TOP_K
 
     # Exécution de la recherche hybride mutualisée
-    final_results, search_mode = await perform_hybrid_search(q, limit)
+    final_results, search_mode, timings = await perform_hybrid_search(q, limit)
 
     if search_mode == "failed":
         raise HTTPException(
@@ -117,6 +117,10 @@ async def ask(req: AskRequest):
     terms = extract_terms(q)
     # formatage de la réponse finale à retourner à l'utilisateur en utilisant les résultats rerankés.
     answer = format_answer(q, final_results, terms)
+
+    # Ajout des métriques de performance et du mode de recherche à la réponse
+    answer["search_mode"] = search_mode
+    answer["timings"] = timings
 
     # Enregistrement de la requête, du mode de recherche utilisé, du nombre de résultats et des sources dans un fichier de log.
     log_entry = {

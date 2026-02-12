@@ -12,8 +12,8 @@ MODELS_DIR = Path(__file__).parent / "data" / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Modèles à télécharger
-EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+EMBED_MODEL = "intfloat/multilingual-e5-base"
+RERANK_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 
 print(f"📥 Téléchargement des modèles dans : {MODELS_DIR}")
 print()
@@ -26,7 +26,11 @@ print()
 
 # Télécharger le modèle de reranking
 print(f"2️⃣  Téléchargement de {RERANK_MODEL}...")
-rerank_model = CrossEncoder(RERANK_MODEL, cache_folder=str(MODELS_DIR))
+rerank_model = CrossEncoder(
+    RERANK_MODEL, 
+    cache_folder=str(MODELS_DIR), 
+    trust_remote_code=True
+)
 print(f"   ✅ Téléchargé : {RERANK_MODEL}")
 print()
 

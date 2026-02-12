@@ -1,5 +1,6 @@
 import { ChatMessage as ChatMessageType } from "../types";
 import { SourceChip } from "./SourceChip";
+import { TimingBar } from "./TimingBar";
 import { User, Bot } from "lucide-react";
 
 interface ChatMessageProps {
@@ -44,6 +45,17 @@ export const ChatMessageBubble = ({ message }: ChatMessageProps) => {
             {message.sources.map((src, i) => (
               <SourceChip key={i} source={src} />
             ))}
+          </div>
+        )}
+
+        {/* Timings */}
+        {!isUser && !message.isStreaming && (message.timings || message.searchMode) && (
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <TimingBar
+              timings={message.timings}
+              searchMode={message.searchMode}
+              variant="block"
+            />
           </div>
         )}
       </div>

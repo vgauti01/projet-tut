@@ -13,11 +13,22 @@ export interface Excerpt {
   relevance_score: number;
 }
 
+export interface SearchTimings {
+  meilisearch_ms?: number;
+  qdrant_ms?: number;
+  rrf_fusion_ms?: number;
+  reranking_ms?: number;
+  llm_ttft_ms?: number;
+  llm_total_ms?: number;
+}
+
 export interface SearchResponse {
   answer: string;
   excerpts: Excerpt[];
   sources: string[];
   total_results: number;
+  search_mode?: string;
+  timings?: SearchTimings;
 }
 
 export interface ChatMessage {
@@ -27,6 +38,8 @@ export interface ChatMessage {
   sources?: Source[];
   timestamp: number;
   isStreaming?: boolean;
+  searchMode?: string;
+  timings?: SearchTimings;
 }
 
 export interface ChatSession {
@@ -52,6 +65,13 @@ export interface SSETokenEvent {
 
 export interface SSEDoneEvent {
   full_response: string;
+  llm_ttft_ms?: number;
+  llm_total_ms?: number;
+}
+
+export interface SSETimingsEvent {
+  search_mode: string;
+  timings: SearchTimings;
 }
 
 export interface SSEErrorEvent {

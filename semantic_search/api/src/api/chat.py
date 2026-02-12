@@ -123,7 +123,7 @@ async def chat(req: ChatRequest):
 
     # ── Hybrid retrieval ──
     search_start = time.time()
-    final_results, search_mode = await perform_hybrid_search(q, limit)
+    final_results, search_mode, timings = await perform_hybrid_search(q, limit)
     chat_metrics.record_search_duration(time.time() - search_start)
 
     # Si les deux moteurs de recherche ont échoué, on retourne une erreur 503.
@@ -142,6 +142,8 @@ async def chat(req: ChatRequest):
         answer = format_answer(q, final_results, terms)
         answer["conversation_id"] = session.conversation_id
         answer["llm_available"] = False
+        answer["search_mode"] = search_mode
+        answer["timings"] = timings
         session.add_message("assistant", answer.get("answer", ""))
         chat_metrics.finish()
         return answer
@@ -175,19 +177,32 @@ async def chat(req: ChatRequest):
         les métadonnées, les sources, les tokens générés, et la réponse finale complète.
         """
         full_response = ""
+        llm_start = None
+        ttft = None
         chat_metrics.start_generation()
         try:
             yield f"event: meta\ndata: {json.dumps({'conversation_id': session.conversation_id})}\n\n"
 
             yield f"event: sources\ndata: {json.dumps(sources_data, ensure_ascii=False)}\n\n"
 
+            yield f"event: timings\ndata: {json.dumps({'search_mode': search_mode, 'timings': timings}, ensure_ascii=False)}\n\n"
+
+            llm_start = time.time()
             async for token in llm.generate_stream(prompt_messages):
+                if ttft is None:
+                    ttft = round((time.time() - llm_start) * 1000, 1)
                 chat_metrics.record_first_token()
                 chat_metrics.record_token()
                 full_response += token
                 yield f"event: token\ndata: {json.dumps({'content': token}, ensure_ascii=False)}\n\n"
 
-            yield f"event: done\ndata: {json.dumps({'full_response': full_response}, ensure_ascii=False)}\n\n"
+            llm_total = round((time.time() - llm_start) * 1000, 1) if llm_start else 0
+            done_data = {
+                'full_response': full_response,
+                'llm_ttft_ms': ttft or 0,
+                'llm_total_ms': llm_total,
+            }
+            yield f"event: done\ndata: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
             session.add_message("assistant", full_response)
 

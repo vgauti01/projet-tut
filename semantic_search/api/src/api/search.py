@@ -14,7 +14,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import AsyncQdrantClient
 from .config import (
     MEILI_URL, MEILI_MASTER_KEY, QDRANT_URL, INDEX_NAME,
-    EMBED_MODEL, RERANK_MODEL, SEARCH_MULTIPLIER, RRF_K, TOP_K
+    EMBED_MODEL, RERANK_MODEL, SEARCH_MULTIPLIER, RRF_K, TOP_K, MIN_SCORE_THRESHOLD
 )
 from .resilience import (
     meili_circuit_breaker,
@@ -63,6 +63,7 @@ async def search_meilisearch(query: str, limit: int) -> List[Dict]:
 
     # Prépare la charge utile pour la requête de recherche, en spécifiant les attributs à récupérer et à surligner,
     # ainsi que le nombre de résultats à retourner (multiplié par un facteur pour compenser la fusion ultérieure).
+    logger.debug(f"Requête normalisée pour Meilisearch: '{normalized_query}'")
     payload = {
         "q": normalized_query,
         "limit": limit * SEARCH_MULTIPLIER,
@@ -107,7 +108,8 @@ async def search_qdrant(query: str, limit: int) -> List[Dict]:
     async def _do_search():
         """Effectue la recherche dans Qdrant en encodant la requête et en interrogeant le client Qdrant."""
         with ModelMetrics("embed"):
-            query_vector = embed_model.encode(query).tolist()
+            normalized_query = normalize_query(query)
+            query_vector = embed_model.encode(normalized_query).tolist()
         
         # Utilisation de query_points car search est manquant dans les versions récentes du client (1.16+)
         res = await qdrant_client.query_points(
@@ -142,14 +144,16 @@ async def search_qdrant(query: str, limit: int) -> List[Dict]:
 async def perform_hybrid_search(
     query: str,
     limit: int = TOP_K
-) -> Tuple[List[Tuple[Dict, float]], str]:
+) -> Tuple[List[Tuple[Dict, float]], str, Dict[str, float]]:
     """
     Exécute une recherche hybride complète (BM25 + Vectoriel + Reranking).
 
     Retourne:
-        Tuple (final_results, search_mode)
+        Tuple (final_results, search_mode, timings)
         final_results est une liste de tuples (document, score)
+        timings contient les durées en ms de chaque étape
     """
+    timings: Dict[str, float] = {}
     with SearchMetrics(query) as search_metrics:
         logger.info(f"Début de la recherche hybride pour: '{query}' (limit={limit})")
 
@@ -161,13 +165,15 @@ async def perform_hybrid_search(
 
         meili_hits, vector_hits = await asyncio.gather(meili_task, qdrant_task)
 
+        timings["meilisearch_ms"] = round((time.time() - meili_start) * 1000, 1)
+        timings["qdrant_ms"] = round((time.time() - qdrant_start) * 1000, 1)
         search_metrics.record_stage("meili", time.time() - meili_start)
         search_metrics.record_stage("qdrant", time.time() - qdrant_start)
 
         if not meili_hits and not vector_hits:
             logger.error("Les deux moteurs de recherche ont échoué ou n'ont retourné aucun résultat")
             search_metrics.set_mode("failed")
-            return [], "failed"
+            return [], "failed", timings
 
         if not meili_hits:
             search_mode = "qdrant_only"
@@ -184,6 +190,7 @@ async def perform_hybrid_search(
         # RRF fusion
         rrf_start = time.time()
         candidates = reciprocal_rank_fusion(meili_hits, vector_hits, k=RRF_K, limit=50)
+        timings["rrf_fusion_ms"] = round((time.time() - rrf_start) * 1000, 1)
         search_metrics.record_stage("rrf", time.time() - rrf_start)
 
         # Reranking avec Cross-encoder
@@ -200,16 +207,25 @@ async def perform_hybrid_search(
                 rerank_start = time.time()
                 with ModelMetrics("rerank"):
                     scores = cross_encoder.predict(rerank_inputs)
+                timings["reranking_ms"] = round((time.time() - rerank_start) * 1000, 1)
                 search_metrics.record_stage("rerank", time.time() - rerank_start)
 
                 ranked = []
                 for i, score in enumerate(scores):
-                    ranked.append((docs_map[i], float(sigmoid(score))))
+                    normalized_score = float(sigmoid(score))
+                    # Filtrage par seuil de pertinence minimum
+                    if normalized_score >= MIN_SCORE_THRESHOLD:
+                        ranked.append((docs_map[i], normalized_score))
+
                 ranked.sort(key=lambda x: x[1], reverse=True)
                 final_results = ranked[:limit]
+
+                if len(ranked) < len(scores):
+                    filtered_count = len(scores) - len(ranked)
+                    logger.info(f"{filtered_count} résultats filtrés (score < {MIN_SCORE_THRESHOLD})")
             except Exception as e:
                 logger.error(f"Le reranking a échoué : {e}. Retour aux scores RRF.")
                 final_results = candidates[:limit]
 
         search_metrics.set_results_count(len(final_results))
-        return final_results, search_mode
+        return final_results, search_mode, timings

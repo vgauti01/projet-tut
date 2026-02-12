@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { ChatMessage, Source } from "../types";
+import { ChatMessage, Source, SearchTimings } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -87,6 +87,8 @@ export function useChat() {
                     content: fallbackContent,
                     sources,
                     isStreaming: false,
+                    searchMode: data.search_mode,
+                    timings: data.timings,
                   }
                 : m
             )
@@ -100,6 +102,8 @@ export function useChat() {
           let buffer = "";
           let accContent = "";
           let sources: Source[] = [];
+          let searchMode: string | undefined;
+          let timings: SearchTimings | undefined;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -122,16 +126,25 @@ export function useChat() {
                     setConversationId(parsed.conversation_id);
                   } else if (eventType === "sources") {
                     sources = parsed;
+                  } else if (eventType === "timings") {
+                    searchMode = parsed.search_mode;
+                    timings = parsed.timings;
                   } else if (eventType === "token") {
                     accContent += parsed.content;
                     setMessages((prev) =>
                       prev.map((m) =>
                         m.id === assistantMsg.id
-                          ? { ...m, content: accContent, sources }
+                          ? { ...m, content: accContent, sources, searchMode, timings }
                           : m
                       )
                     );
                   } else if (eventType === "done") {
+                    // Merge LLM timing into timings
+                    const finalTimings: SearchTimings = {
+                      ...timings,
+                      ...(parsed.llm_ttft_ms !== undefined && { llm_ttft_ms: parsed.llm_ttft_ms }),
+                      ...(parsed.llm_total_ms !== undefined && { llm_total_ms: parsed.llm_total_ms }),
+                    };
                     // Final update
                     setMessages((prev) =>
                       prev.map((m) =>
@@ -141,6 +154,8 @@ export function useChat() {
                               content: parsed.full_response || accContent,
                               sources,
                               isStreaming: false,
+                              searchMode,
+                              timings: finalTimings,
                             }
                           : m
                       )
