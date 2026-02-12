@@ -9,11 +9,12 @@ from .xlsx_extractor import XlsxExtractor
 from .pptx_extractor import PptxExtractor
 from .csv_extractor import CsvExtractor
 from .txt_extractor import TxtExtractor
+from .image_extractor import ImageExtractor
 
 # Configure le logger pour ce module, ce qui permet de suivre les opérations d'extraction et de diagnostiquer les problèmes éventuels
 logger = logging.getLogger(__name__)
 
-# Liste des classes d'extracteurs disponibles, chacune spécialisée dans un type de fichier différent (PDF, DOCX, XLSX, PPTX, CSV, TXT).
+# Liste des classes d'extracteurs disponibles, chacune spécialisée dans un type de fichier différent (PDF, DOCX, XLSX, PPTX, CSV, TXT, Images).
 _EXTRACTORS: List[type[Extractor]] = [
     PdfExtractor,
     DocxExtractor,
@@ -21,6 +22,7 @@ _EXTRACTORS: List[type[Extractor]] = [
     PptxExtractor,
     CsvExtractor,
     TxtExtractor,
+    ImageExtractor,
 ]
 
 

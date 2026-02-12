@@ -151,8 +151,10 @@ services:
       - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       - RERANK_MODEL=${RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
       - HF_CACHE_DIR=/workdir/data/models
+      - HF_HOME=/docling_cache
     volumes:
       - ./:/workdir:ro
+      - ./data/docling_models:/docling_cache:rw
     depends_on:
       # L'ingestor doit attendre que l'API soit opérationnelle, car il dépend de la disponibilité de Meilisearch et Qdrant pour indexer les documents.
       meilisearch:

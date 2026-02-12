@@ -3,40 +3,120 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
+from .hf_compat import patch_hf_hub
+
+patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 
 
 class PdfExtractor(Extractor):
     """
-    Extracteur pour les fichiers PDF. Utilise la bibliothèque PyMuPDF (fitz)
-    pour lire les fichiers PDF et extraire le texte de chaque page.
-    Chaque page du PDF est traitée comme une page d'extraction distincte, avec son numéro de page et les métadonnées associées.
-    """
+    Extracteur pour les fichiers PDF utilisant Docling avec OCR.
 
-    # Liste des extensions de fichiers supportées par cet extracteur (ici, uniquement les fichiers .pdf)
+    Docling offre une extraction PDF avancée :
+    - Détection automatique de la mise en page (layout)
+    - Extraction des tableaux avec structure préservée
+    - OCR activé avec force_full_page_ocr pour PDF scannés/images
+    - Préservation de l'ordre de lecture logique
+    - Backend OCR : RapidOCR (inclus avec Docling)
+
+    Fallback automatique vers PyMuPDF (fitz) si Docling échoue.
+    """
     SUPPORTED_EXTENSIONS = [".pdf"]
 
+    def __init__(self):
+        self._converter = None
+
+    def _get_converter(self):
+        """Lazy loading du DocumentConverter avec OCR activé."""
+        if self._converter is None:
+            try:
+                from docling.datamodel.base_models import InputFormat
+                from docling.datamodel.pipeline_options import (
+                    PdfPipelineOptions,
+                    RapidOcrOptions,
+                )
+                from docling.document_converter import DocumentConverter, PdfFormatOption
+
+                # Configuration OCR pour PDF (y compris PDF scannés / images)
+                pipeline_options = PdfPipelineOptions()
+                pipeline_options.do_ocr = True
+                pipeline_options.do_table_structure = True
+                # RapidOCR est déjà installé avec Docling, pas de dépendance supplémentaire
+                pipeline_options.ocr_options = RapidOcrOptions(
+                    force_full_page_ocr = True,  # Force OCR sur toute la page (essentiel pour PDF-images)
+                )
+
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(
+                            pipeline_options=pipeline_options,
+                        )
+                    }
+                )
+            except ImportError as e:
+                logger.error("Docling n'est pas installé. Installez-le avec: uv add docling")
+                raise ImportError(
+                    "docling est requis pour l'extraction PDF. "
+                    "Installez-le avec: uv add docling"
+                ) from e
+        return self._converter
+
     def extract(self, file_path: Path) -> Iterator[ExtractedPage]:
-        # Import local pour ne charger PyMuPDF que si nécessaire
+        """Extrait le contenu du fichier PDF en préservant la structure."""
+        try:
+            converter = self._get_converter()
+
+            logger.info(f"Extraction PDF avec Docling (OCR activé): {file_path.name}")
+            result = converter.convert(str(file_path))
+
+            # Extraction du document complet en markdown
+            full_markdown = result.document.export_to_markdown()
+
+            if not full_markdown or not full_markdown.strip():
+                logger.warning(f"Aucun contenu extrait de {file_path} avec Docling")
+                return
+
+            # Docling produit un seul markdown structuré pour tout le document
+            yield ExtractedPage(
+                page_number=1,
+                text=full_markdown,
+                metadata={
+                    "source_type": "pdf",
+                    "extraction_method": "docling",
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Impossible d'extraire le fichier PDF {file_path} avec Docling: {e}")
+            logger.info(f"Tentative de fallback vers PyMuPDF pour {file_path}")
+            try:
+                yield from self._fallback_pymupdf_extract(file_path)
+            except Exception as fallback_error:
+                logger.error(f"Le fallback PyMuPDF a également échoué: {fallback_error}")
+                return
+
+    def _fallback_pymupdf_extract(self, file_path: Path) -> Iterator[ExtractedPage]:
+        """Méthode de fallback utilisant PyMuPDF (fitz) si Docling échoue."""
         import fitz  # PyMuPDF
 
         doc = None
         try:
             doc = fitz.open(file_path)
 
-            # Extraction du texte de chaque page
             for i, page in enumerate(doc):
                 try:
-                    # get_text("text") extrait le texte brut de la page, sans mise en forme ni éléments graphiques
                     text = page.get_text("text")
 
-                    # Si la page est vide ou ne contient que des espaces, elle est ignorée
                     if text.strip():
                         yield ExtractedPage(
                             page_number=i + 1,
                             text=text,
-                            metadata={"source_type": "pdf"},
+                            metadata={
+                                "source_type": "pdf",
+                                "extraction_method": "pymupdf_fallback",
+                            },
                         )
 
                 except Exception as e:
@@ -48,7 +128,6 @@ class PdfExtractor(Extractor):
             return
 
         finally:
-            # Ferme le document pour libérer les ressources, même si une exception est levée
             if doc is not None:
                 try:
                     doc.close()

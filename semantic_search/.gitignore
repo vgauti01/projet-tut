@@ -70,6 +70,8 @@ data/indexes/qdrant/*
 data/models/*.gguf
 data/models/*.bin
 !data/models/.gitkeep
+data/docling_models/*
+!data/docling_models/.gitkeep
 
 # Optional: Uncomment if you don't want to track PDFs
 # data/docs/*.pdf

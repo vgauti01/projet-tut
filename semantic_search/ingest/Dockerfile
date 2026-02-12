@@ -92,13 +92,24 @@ ENV PYTHONUNBUFFERED=1 \
 #   --no-install-recommends: Installe UNIQUEMENT dépendances strictes
 #     → Exclut: Suggestions, docs, man pages, locales
 # ca-certificates: Autorités de certification SSL/TLS racines
+# libgomp1: OpenMP runtime pour Docling (parallélisation)
+# libgl1: OpenGL pour traitement d'images par Docling
+# libglib2.0-0: GLib pour certaines bibliothèques graphiques
+# tesseract-ocr: Moteur OCR pour extraction de texte des images/PDF scannés
+# tesseract-ocr-fra: Données linguistiques françaises pour Tesseract
+# tesseract-ocr-eng: Données linguistiques anglaises pour Tesseract
 # rm -rf /var/lib/apt/lists/*: Nettoie métadonnées APT après installation
 # apt-get clean: Nettoie le cache APT des .deb téléchargés
-# RÉSULTAT: Layer minimale avec uniquement ca-certificates installé
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
+        libgomp1 \
+        libgl1 \
+        libglib2.0-0 \
+        tesseract-ocr \
+        tesseract-ocr-fra \
+        tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -122,8 +133,9 @@ RUN groupadd -r ingestuser && \
 
 # Création des répertoires applicatifs avec permissions appropriées
 # Crée aussi le répertoire .cache pour les modèles Hugging Face et Sentence Transformers
-RUN mkdir -p /app/logs /app/data /home/ingestuser/.cache && \
-    chown -R ingestuser:ingestuser /app /home/ingestuser/.cache
+# /docling_cache pour les modèles Docling (layout detection, OCR)
+RUN mkdir -p /app/logs /app/data /home/ingestuser/.cache /docling_cache && \
+    chown -R ingestuser:ingestuser /app /home/ingestuser/.cache /docling_cache
 
 # Copie de l'environnement virtuel depuis le stage builder
 # --from=builder: Référence le stage nommé "builder" (multi-stage build)
