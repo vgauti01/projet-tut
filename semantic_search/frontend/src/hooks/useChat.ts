@@ -119,6 +119,7 @@ export function useChat() {
           let sources: Source[] = [];
           let excerpts: any[] = []; // Stocker les excerpts complets
           let searchMode: string | undefined;
+          let responseMode: string | undefined;
           let timings: SearchTimings | undefined;
 
           while (true) {
@@ -152,6 +153,7 @@ export function useChat() {
                     }));
                   } else if (eventType === "timings") {
                     searchMode = parsed.search_mode;
+                    responseMode = parsed.response_mode;
                     timings = parsed.timings;
                   } else if (eventType === "token") {
                     accContent += parsed.content;
@@ -159,7 +161,7 @@ export function useChat() {
                     setMessages((prev) =>
                       prev.map((m) =>
                         m.id === assistantMsg.id
-                          ? { ...m, content: cleanContent, thinking, sources, searchMode, timings }
+                          ? { ...m, content: cleanContent, thinking, sources, searchMode, responseMode, timings }
                           : m
                       )
                     );
@@ -184,6 +186,7 @@ export function useChat() {
                               sources,
                               isStreaming: false,
                               searchMode,
+                              responseMode,
                               timings: finalTimings,
                             }
                           : m

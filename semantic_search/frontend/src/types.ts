@@ -32,6 +32,8 @@ export interface SearchResponse {
   timings?: SearchTimings;
 }
 
+export type ResponseMode = "rag" | "knowledge" | "hybrid";
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -41,6 +43,7 @@ export interface ChatMessage {
   timestamp: number;
   isStreaming?: boolean;
   searchMode?: string;
+  responseMode?: ResponseMode; // Mode de réponse utilisé (RAG, knowledge, hybrid)
   timings?: SearchTimings;
 }
 
@@ -73,6 +76,7 @@ export interface SSEDoneEvent {
 
 export interface SSETimingsEvent {
   search_mode: string;
+  response_mode?: ResponseMode;
   timings: SearchTimings;
 }
 

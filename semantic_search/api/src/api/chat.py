@@ -1,4 +1,5 @@
 """Points de terminaison du chat avec gestion de session et streaming SSE."""
+
 import asyncio
 import json
 import logging
@@ -11,20 +12,19 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from .config import TOP_K, LLM_MAX_HISTORY
-from .search import (
-    perform_hybrid_search
-)
+from .config import TOP_K, LLM_MAX_HISTORY, RAG_RELEVANCE_THRESHOLD, RAG_MIN_RESULTS
+from .search import perform_hybrid_search
 from .utils import extract_terms, format_answer
 from .metrics import track_request_metrics, ChatMetrics, ERROR_COUNT
 from .llm import get_llm_service
 from .llm.base import ChatMessage
-from .prompt import build_rag_prompt
+from .prompt import build_prompt_by_mode, determine_response_mode
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # ── Stockage des sessions en mémoire ─────────────────────────────────────
+
 
 class ChatSession:
     """
@@ -32,6 +32,7 @@ class ChatSession:
     Chaque session est identifiée par un conversation_id unique, et stocke les messages échangés entre l'utilisateur et l'assistant,
     ainsi que les timestamps de création et de mise à jour pour permettre la gestion de l'historique et des contextes de conversation.
     """
+
     def __init__(self, conversation_id: str):
         """Initialise une nouvelle session de chat avec un ID de conversation unique."""
         self.conversation_id = conversation_id
@@ -46,7 +47,9 @@ class ChatSession:
 
     def get_history_as_chat_messages(self) -> List[ChatMessage]:
         """Retourne l'historique sous forme d'objets ChatMessage pour le LLM."""
-        return [ChatMessage(role=m["role"], content=m["content"]) for m in self.messages]
+        return [
+            ChatMessage(role=m["role"], content=m["content"]) for m in self.messages
+        ]
 
     def to_dict(self) -> Dict[str, Any]:
         """Convertit la session en dictionnaire pour les réponses API."""
@@ -57,10 +60,12 @@ class ChatSession:
             "updated_at": self.updated_at,
         }
 
+
 # Les sessions de chat sont stockées dans un dictionnaire en mémoire, avec le conversation_id comme clé.
 _sessions: Dict[str, ChatSession] = {}
 
 # ── Modèles de Requête / Réponse ─────────────────────────────────────────
+
 
 class ChatRequest(BaseModel):
     """
@@ -68,6 +73,7 @@ class ChatRequest(BaseModel):
     Ce modèle valide que la requête contient une chaîne de caractères non vide pour la question (query),
     et que la limite de résultats (limit) est un entier positif entre 1 et 100 si elle est fournie.
     """
+
     query: str = Field(..., min_length=1, max_length=1000)
     conversation_id: Optional[str] = None
     limit: Optional[int] = Field(None, ge=1, le=100)
@@ -77,11 +83,14 @@ class ChatRequest(BaseModel):
     def validate_query(cls, v: str) -> str:
         v = v.strip()
         if not v:
-            raise ValueError("La requête ne peut pas être vide ou composée uniquement d'espaces")
+            raise ValueError(
+                "La requête ne peut pas être vide ou composée uniquement d'espaces"
+            )
         return v
 
 
 # ── Points de Terminaison (Endpoints) ────────────────────────────────────
+
 
 @router.post("/new")
 async def new_conversation():
@@ -128,15 +137,21 @@ async def chat(req: ChatRequest):
 
     # Si les deux moteurs de recherche ont échoué, on retourne une erreur 503.
     if search_mode == "failed":
-        logger.error("Moteurs de recherche indisponibles, impossibilité de traiter la requête.")
+        logger.error(
+            "Moteurs de recherche indisponibles, impossibilité de traiter la requête."
+        )
         ERROR_COUNT.labels(error_type="SearchUnavailable", endpoint="/chat").inc()
-        raise HTTPException(status_code=503, detail="Les moteurs de recherche sont indisponibles.")
+        raise HTTPException(
+            status_code=503, detail="Les moteurs de recherche sont indisponibles."
+        )
 
     # ── Génération LLM ou repli ──
     llm = get_llm_service()
 
     if not llm.is_available():
-        logger.warning("Le LLM n'est pas disponible, retour de la réponse sans génération de texte.")
+        logger.warning(
+            "Le LLM n'est pas disponible, retour de la réponse sans génération de texte."
+        )
         chat_metrics.set_path("fallback")
         terms = extract_terms(q)
         answer = format_answer(q, final_results, terms)
@@ -152,21 +167,31 @@ async def chat(req: ChatRequest):
     # telles que le titre, la page, le chemin, le score de pertinence, le type de source et un aperçu du contenu.
     sources_data = []
     for doc, score in final_results:
-        sources_data.append({
-            "title": doc.get("title", "Document"),
-            "page": doc.get("page", "?"),
-            "path": doc.get("path", ""),
-            "score": round(score, 4),
-            "source_type": doc.get("source_type", ""),
-            "content_preview": (doc.get("content", ""))[:200],
-        })
+        sources_data.append(
+            {
+                "title": doc.get("title", "Document"),
+                "page": doc.get("page", "?"),
+                "path": doc.get("path", ""),
+                "score": round(score, 4),
+                "source_type": doc.get("source_type", ""),
+                "content_preview": (doc.get("content", ""))[:200],
+            }
+        )
+
+    # Déterminer le mode de réponse basé sur la pertinence des résultats
+    response_mode = determine_response_mode(
+        final_results, RAG_RELEVANCE_THRESHOLD, RAG_MIN_RESULTS
+    )
+    logger.info(f"Mode de réponse sélectionné : {response_mode}")
 
     # Construire le prompt
     history = session.get_history_as_chat_messages()
-    # Exclure le dernier message de l'utilisateur (nous l'inclurons dans le prompt RAG)
+    # Exclure le dernier message de l'utilisateur (nous l'inclurons dans le prompt)
     history_for_prompt = history[:-1] if history else []
-    # Construire le prompt RAG en combinant le système, l'historique de la conversation (sauf le dernier message), et les extraits de documents pertinents pour fournir un contexte riche au LLM lors de la génération de la réponse.
-    prompt_messages = build_rag_prompt(q, final_results, history_for_prompt, LLM_MAX_HISTORY)
+    # Construire le prompt approprié selon le mode (RAG, knowledge, ou hybrid)
+    prompt_messages = build_prompt_by_mode(
+        response_mode, q, final_results, history_for_prompt, LLM_MAX_HISTORY
+    )
 
     # SSE streaming response
     chat_metrics.set_path("llm")
@@ -185,7 +210,7 @@ async def chat(req: ChatRequest):
 
             yield f"event: sources\ndata: {json.dumps(sources_data, ensure_ascii=False)}\n\n"
 
-            yield f"event: timings\ndata: {json.dumps({'search_mode': search_mode, 'timings': timings}, ensure_ascii=False)}\n\n"
+            yield f"event: timings\ndata: {json.dumps({'search_mode': search_mode, 'response_mode': response_mode, 'timings': timings}, ensure_ascii=False)}\n\n"
 
             llm_start = time.time()
             async for token in llm.generate_stream(prompt_messages):
@@ -198,9 +223,9 @@ async def chat(req: ChatRequest):
 
             llm_total = round((time.time() - llm_start) * 1000, 1) if llm_start else 0
             done_data = {
-                'full_response': full_response,
-                'llm_ttft_ms': ttft or 0,
-                'llm_total_ms': llm_total,
+                "full_response": full_response,
+                "llm_ttft_ms": ttft or 0,
+                "llm_total_ms": llm_total,
             }
             yield f"event: done\ndata: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
