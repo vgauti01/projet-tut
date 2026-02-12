@@ -5,6 +5,7 @@ export interface Source {
   score: number;
   source_type?: string;
   content_preview?: string;
+  full_content?: string; // Contenu complet de l'extrait
 }
 
 export interface Excerpt {
@@ -35,6 +36,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  thinking?: string; // Contenu du thinking entre balises <think></think>
   sources?: Source[];
   timestamp: number;
   isStreaming?: boolean;

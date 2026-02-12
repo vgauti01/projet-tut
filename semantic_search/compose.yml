@@ -113,8 +113,8 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # Monte les modèles (LLM + Hugging Face) en lecture seule
-      - ./data/models:/app/models:ro
+      # Monte les modèles (LLM + Hugging Face)
+      - ./data/models:/app/models
       # Monte les logs de l'API dans un volume persistant pour faciliter le débogage et la surveillance, tout en évitant d'écrire directement sur le disque de l'hôte.
       - api_logs:/app/logs
     tmpfs:

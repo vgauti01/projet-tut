@@ -3,7 +3,6 @@
 import os
 import logging
 from typing import Any, List
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,11 @@ class EmbeddingService:
         logger.info(f"Cache directory: {cache_dir or 'default (~/.cache/huggingface)'}")
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> Any:
         """Lazy loading du modèle - ne charge qu'à la première utilisation."""
         if self._model is None:
             logger.info(f"Chargement du modèle {self.model_name}...")
+            from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self.model_name, cache_folder=self.cache_dir)
             logger.info(f"Modèle chargé avec succès (dimension: {self._model.get_sentence_embedding_dimension()})")
         return self._model
