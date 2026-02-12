@@ -3,9 +3,6 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from .hf_compat import patch_hf_hub
-
-patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 
@@ -102,30 +99,14 @@ class ImageExtractor(Extractor):
                 )
                 return
 
-            # Métadonnées enrichies
-            metadata = {
-                "source_type": "image",
-                "extraction_method": "docling_ocr",
-                "image_format": file_path.suffix.lower(),
-                "ocr_result": "text_detected",
-            }
-
-            # Ajout du nombre de tableaux détectés
-            if hasattr(result.document, 'tables'):
-                metadata["num_tables"] = len(result.document.tables)
-
-            # Ajout des dimensions de l'image si disponibles
-            if hasattr(result.document, 'pages') and result.document.pages:
-                page = result.document.pages[0]
-                if hasattr(page, 'size'):
-                    metadata["image_width"] = page.size.width if hasattr(page.size, 'width') else None
-                    metadata["image_height"] = page.size.height if hasattr(page.size, 'height') else None
-
-            # Une image = une page
             yield ExtractedPage(
                 page_number=1,
                 text=full_markdown,
-                metadata=metadata,
+                metadata={
+                    "source_type": "image",
+                    "extraction_method": "docling_ocr",
+                    "image_format": file_path.suffix.lower(),
+                },
             )
 
             logger.info(f"Extraction OCR réussie: {len(full_markdown)} caractères détectés")

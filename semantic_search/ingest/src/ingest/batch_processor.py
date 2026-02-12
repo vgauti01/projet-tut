@@ -44,10 +44,14 @@ def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, A
                 if not page.text.strip():
                     continue
 
-                # Nettoie les artefacts PDF (lignes de points, caractères parasites)
-                cleaned_text = clean_pdf_artifacts(page.text)
+                # Nettoie les artefacts PDF uniquement pour les extractions fallback
+                # Docling produit du markdown propre, clean_pdf_artifacts le détruirait
+                extraction_method = page.metadata.get("extraction_method", "")
+                if extraction_method.endswith("_fallback"):
+                    cleaned_text = clean_pdf_artifacts(page.text)
+                else:
+                    cleaned_text = page.text
 
-                # Vérifie à nouveau après nettoyage
                 if not cleaned_text.strip():
                     continue
 
@@ -128,8 +132,8 @@ def process_batch(
         with get_qdrant_client(QDRANT_URL) as qdrant_client:
             points = []
             for i, doc in enumerate(batch_docs):
-                # Utilise un hash du doc_id comme ID numérique unique et stable
-                point_id = int(hashlib.md5(doc["id"].encode()).hexdigest()[:8], 16)
+                # Hash 64 bits pour éviter les collisions (birthday paradox à ~65K chunks avec 32 bits)
+                point_id = int(hashlib.md5(doc["id"].encode()).hexdigest()[:16], 16)
                 points.append(models.PointStruct(
                     id=point_id,
                     vector=embeddings[i].tolist(),

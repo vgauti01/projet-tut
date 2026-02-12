@@ -3,9 +3,6 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from .hf_compat import patch_hf_hub
-
-patch_hf_hub()
 
 logger = logging.getLogger(__name__)
 
@@ -63,26 +60,13 @@ class DocxExtractor(Extractor):
                 logger.warning(f"Aucun contenu extrait de {file_path}")
                 return
 
-            # Métadonnées enrichies
-            metadata = {
-                "source_type": "docx",
-                "extraction_method": "docling",
-            }
-
-            # Ajout du nombre de pages si disponible
-            if hasattr(result.document, 'num_pages'):
-                metadata["num_pages"] = result.document.num_pages
-
-            # Ajout du nombre de tableaux détectés
-            if hasattr(result.document, 'tables'):
-                metadata["num_tables"] = len(result.document.tables)
-
-            # Pour DOCX, on considère le document comme une seule page
-            # (pas de pagination fixe dans Word)
             yield ExtractedPage(
                 page_number=1,
                 text=full_markdown,
-                metadata=metadata,
+                metadata={
+                    "source_type": "docx",
+                    "extraction_method": "docling",
+                },
             )
 
         except Exception as e:
