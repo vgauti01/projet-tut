@@ -19,8 +19,13 @@ dependencies = [
     "qdrant-client>=1.16.2",
     "requests>=2.32.5",
     "sentence-transformers>=5.2.2",
+    "transformers>=4.48.0",
+    "accelerate>=1.1.0",
+    "huggingface-hub>=0.28.0",
+    "tokenizers>=0.21.0",
     "tqdm>=4.67.3",
     "torch",
+    "torchvision",
 ]
 
 [project.scripts]
@@ -33,6 +38,7 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]

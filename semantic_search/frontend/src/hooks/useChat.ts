@@ -3,6 +3,17 @@ import { ChatMessage, Source, SearchTimings } from "../types";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
+// Fonction utilitaire pour extraire le thinking du contenu
+function extractThinking(content: string): { thinking: string | undefined; cleanContent: string } {
+  const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+  if (thinkMatch) {
+    const thinking = thinkMatch[1].trim();
+    const cleanContent = content.replace(/<think>[\s\S]*?<\/think>/, "").trim();
+    return { thinking, cleanContent };
+  }
+  return { thinking: undefined, cleanContent: content };
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -77,14 +88,18 @@ export function useChat() {
             data.excerpts?.map((e: any) => ({
               ...e.source,
               content_preview: e.content?.substring(0, 200),
+              full_content: e.content, // Stocker le contenu complet
             })) || [];
+
+          const { thinking, cleanContent } = extractThinking(fallbackContent);
 
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsg.id
                 ? {
                     ...m,
-                    content: fallbackContent,
+                    content: cleanContent,
+                    thinking,
                     sources,
                     isStreaming: false,
                     searchMode: data.search_mode,
@@ -102,6 +117,7 @@ export function useChat() {
           let buffer = "";
           let accContent = "";
           let sources: Source[] = [];
+          let excerpts: any[] = []; // Stocker les excerpts complets
           let searchMode: string | undefined;
           let timings: SearchTimings | undefined;
 
@@ -126,15 +142,24 @@ export function useChat() {
                     setConversationId(parsed.conversation_id);
                   } else if (eventType === "sources") {
                     sources = parsed;
+                  } else if (eventType === "excerpts") {
+                    // Stocker les excerpts complets pour utiliser leur contenu entier
+                    excerpts = parsed;
+                    sources = parsed.map((e: any) => ({
+                      ...e.source,
+                      content_preview: e.content?.substring(0, 200),
+                      full_content: e.content,
+                    }));
                   } else if (eventType === "timings") {
                     searchMode = parsed.search_mode;
                     timings = parsed.timings;
                   } else if (eventType === "token") {
                     accContent += parsed.content;
+                    const { thinking, cleanContent } = extractThinking(accContent);
                     setMessages((prev) =>
                       prev.map((m) =>
                         m.id === assistantMsg.id
-                          ? { ...m, content: accContent, sources, searchMode, timings }
+                          ? { ...m, content: cleanContent, thinking, sources, searchMode, timings }
                           : m
                       )
                     );
@@ -145,13 +170,17 @@ export function useChat() {
                       ...(parsed.llm_ttft_ms !== undefined && { llm_ttft_ms: parsed.llm_ttft_ms }),
                       ...(parsed.llm_total_ms !== undefined && { llm_total_ms: parsed.llm_total_ms }),
                     };
+                    const finalContent = parsed.full_response || accContent;
+                    const { thinking, cleanContent } = extractThinking(finalContent);
+                    
                     // Final update
                     setMessages((prev) =>
                       prev.map((m) =>
                         m.id === assistantMsg.id
                           ? {
                               ...m,
-                              content: parsed.full_response || accContent,
+                              content: cleanContent,
+                              thinking,
                               sources,
                               isStreaming: false,
                               searchMode,

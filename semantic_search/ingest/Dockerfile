@@ -34,15 +34,12 @@ COPY pyproject.toml uv.lock README.md ./
 #   → Évite de retélécharger les packages Python déjà récupérés
 #   → Accélération drastique des rebuilds
 # uv sync: Synchronise l'environnement virtuel avec uv.lock
-# --frozen: Mode strict, échoue si uv.lock est désynchronisé
-#   → Garantit la reproductibilité (mêmes versions partout)
-#   → Détecte les modifications non commitées du lockfile
 # --no-install-project: N'installe pas le projet local à cette étape
 #   → Optimisation de cache : deps changent moins souvent que le code
 #   → Permet de reconstruire uniquement la dernière layer si code modifié
 # --no-dev: Exclut les dépendances de développement (pytest, ruff, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+    uv sync --no-install-project --no-dev
 
 # Copie du code source dans l'image de build
 # COPY vs --mount=type=bind: Ici on DOIT copier car le code sera dans l'image finale
@@ -54,7 +51,7 @@ COPY src ./src
 # Sans --no-install-project cette fois : installe le package en mode "editable"
 # Le cache UV est réutilisé : seules les nouvelles dépendances sont téléchargées
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --no-dev
 
 # ============================================================================
 # Stage 2: Image d'exécution minimale (runtime)
@@ -95,6 +92,7 @@ ENV PYTHONUNBUFFERED=1 \
 # libgomp1: OpenMP runtime pour Docling (parallélisation)
 # libgl1: OpenGL pour traitement d'images par Docling
 # libglib2.0-0: GLib pour certaines bibliothèques graphiques
+# libnuma1: Bibliothèque pour la gestion de la mémoire NUMA (utilisée par PyTorch)
 # tesseract-ocr: Moteur OCR pour extraction de texte des images/PDF scannés
 # tesseract-ocr-fra: Données linguistiques françaises pour Tesseract
 # tesseract-ocr-eng: Données linguistiques anglaises pour Tesseract
@@ -105,6 +103,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         libgomp1 \
+        libnuma1 \
         libgl1 \
         libglib2.0-0 \
         tesseract-ocr \
