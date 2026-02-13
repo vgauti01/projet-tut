@@ -90,6 +90,7 @@ class ImageExtractor(Extractor):
                 yield ExtractedPage(
                     page_number=1,
                     text="[Image sans texte détectable]",
+                    title=file_path.stem.replace("_", " "),
                     metadata={
                         "source_type": "image",
                         "extraction_method": "docling_ocr",
@@ -102,6 +103,7 @@ class ImageExtractor(Extractor):
             yield ExtractedPage(
                 page_number=1,
                 text=full_markdown,
+                title=file_path.stem.replace("_", " "),
                 metadata={
                     "source_type": "image",
                     "extraction_method": "docling_ocr",

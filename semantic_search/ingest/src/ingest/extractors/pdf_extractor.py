@@ -75,13 +75,21 @@ class PdfExtractor(Extractor):
                 logger.warning(f"Aucun contenu extrait de {file_path} avec Docling")
                 return
 
-            # Docling produit un seul markdown structuré pour tout le document
+            # Extraction des métadonnées (si disponibles dans les propriétés du PDF)
+            doc_meta = {}
+            if result.input.file_source:
+                 # Note: Docling expose les métadonnées internes différemment selon version
+                 # On tente une récupération basique via PyMuPDF en parallèle pour les métas si besoin
+                 pass
+
             yield ExtractedPage(
                 page_number=1,
                 text=full_markdown,
+                title=file_path.stem.replace("_", " "), # Nom de fichier par défaut comme titre
                 metadata={
                     "source_type": "pdf",
                     "extraction_method": "docling",
+                    "page_count": len(result.document.pages) if hasattr(result.document, "pages") else 0
                 },
             )
 

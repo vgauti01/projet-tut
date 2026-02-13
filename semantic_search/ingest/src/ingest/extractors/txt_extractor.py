@@ -22,5 +22,6 @@ class TxtExtractor(Extractor):
             yield ExtractedPage(
                 page_number=1,
                 text=text,
+                title=file_path.stem.replace("_", " "),
                 metadata={"source_type": "txt"},
             )

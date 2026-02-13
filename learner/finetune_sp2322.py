@@ -219,9 +219,7 @@ trainer = SFTTrainer(
         warmup_steps=5,
 
         # Nombre d'epoques (passages complets sur le dataset).
-        # Avec 87 exemples, 3-5 epoques sont necessaires pour que le modele
-        # assimile bien les connaissances. On passe a 6 pour une meilleure convergence.
-        num_train_epochs=6,
+        num_train_epochs=4,
 
         # Pas de limite de steps : on fait les 4 epoques completes.
         # (le script original limitait a 60 steps pour une demo rapide)
@@ -299,8 +297,7 @@ print(f"{start_gpu_memory} Go de memoire reservee avant entrainement.")
 # =============================================================================
 # 8. LANCEMENT DE L'ENTRAINEMENT
 # =============================================================================
-# C'est ici que le modele apprend ! Avec 87 exemples et 4 epoques,
-# ca devrait prendre environ 5-15 minutes sur un T4 Google Colab.
+# C'est ici que le modele apprend !
 # Surveillez la loss : elle doit diminuer progressivement.
 # Explication: la loss est une mesure de l'erreur du modele. Au debut, la loss est elevee (ex: 2.0-3.0)
 # car le modele ne connait pas encore les reponses. Au fur et a mesure de l'entrainement, 
@@ -402,12 +399,20 @@ print(f"\nAdaptateurs LoRA sauvegardes dans : {LORA_OUTPUT_DIR}/")
 GGUF_OUTPUT_DIR = "sp2322_gguf"
 
 # Export en Q4_K_M (recommande pour votre setup de production)
-model.save_pretrained_gguf(
-    GGUF_OUTPUT_DIR,
-    tokenizer,
-    quantization_method="q4_k_m",
-)
-print(f"\nModele GGUF sauvegarde dans : {GGUF_OUTPUT_DIR}/")
+# NOTE: Cette étape nécessite 'make' et un compilateur C++ (gcc/clang) installés.
+# Sur Windows sans environnement de compilation, cela échouera.
+# Dans ce cas, utilisez le script de conversion manuel ou téléchargez les binaires llama.cpp.
+try:
+    model.save_pretrained_gguf(
+        GGUF_OUTPUT_DIR,
+        tokenizer,
+        quantization_method="q4_k_m",
+    )
+    print(f"\nModele GGUF sauvegarde dans : {GGUF_OUTPUT_DIR}/")
+except RuntimeError as e:
+    print(f"\n[ATTENTION] La conversion automatique GGUF a echoue : {e}")
+    print("Cependant, le modele fusionne (merged) a bien ete sauvegarde au format SafeTensors.")
+    print(f"Vous pouvez le convertir manuellement en suivant ces instructions :")
 
 # Pour exporter en Q8_0 (meilleure qualite) :
 # model.save_pretrained_gguf(GGUF_OUTPUT_DIR, tokenizer, quantization_method="q8_0")

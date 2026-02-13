@@ -66,15 +66,29 @@ def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, A
                     path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
                     doc_id = f"{clean_filename}_{path_hash}_{page.page_number}_{idx}"
 
-                    yield {
+                    # Construction du dictionnaire unifié pour Meili/Qdrant
+                    doc_payload = {
                         "id": doc_id,
-                        "title": title,
+                        "title": page.title if page.title else title, # Priorité au titre extrait
+                        "author": page.author,
+                        "creation_date": page.creation_date,
+                        "modification_date": page.modification_date,
+                        "language": page.language,
                         "path": str(file_path),
                         "page": page.page_number,
                         "chunk_id": idx,
                         "content": chunk,
                         "source_type": source_type,
                     }
+                    
+                    # Fusion des autres métadonnées (extraction_method, page_count, etc.)
+                    # On exclut les clés standard déjà présentes pour éviter les doublons/conflits
+                    standard_keys = {"id", "title", "author", "creation_date", "modification_date", "language", "path", "page", "chunk_id", "content", "source_type"}
+                    for k, v in page.metadata.items():
+                        if k not in standard_keys:
+                            doc_payload[k] = v
+
+                    yield doc_payload
 
         except Exception as e:
             logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)

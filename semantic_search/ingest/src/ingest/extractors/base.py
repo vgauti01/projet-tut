@@ -12,8 +12,15 @@ class ExtractedPage:
     # Contenu textuel extrait de la page
     text: str
     # Métadonnées supplémentaires (ex: type de source, langue, etc.)
-    # field(default_factory=dict) permet d'initialiser metadata à un dictionnaire vide par défaut, évitant les problèmes liés aux objets mutables partagés entre instances
-    metadata: Dict[str, Any] = field(default_factory=dict) 
+    # field(default_factory=dict) permet d'initialiser metadata à un dictionnaire vide par défaut
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Métadonnées standardisées pour faciliter l'indexation
+    title: str = ""
+    author: str = ""
+    creation_date: str = ""
+    modification_date: str = ""
+    language: str = "fr" 
 
 
 class Extractor(ABC):
