@@ -1,0 +1,119 @@
+graph TD
+    %% --- BLOC 1 : INGESTION & PARSING DOCLING ---
+    subgraph Docling_Process [<b>PHASE 1 : DOCLING & EXTRACTION</b>]
+        %% --- Entrée ---
+        Start[Réception du fichier] --> Router{Extension du fichier}
+
+        %% --- BRANCHE 1 : Documents Visuels (PDF, Images) ---
+        %% Technologie : Docling Vision Pipeline
+        
+        Router -- .pdf, .png, .jpg --> Step1_Load[Chargement du <b>DocumentConverter</b>]
+        Step1_Load --> Step2_Detect[<b>Layout Analysis</b><br/>Découpage visuel en blocs]
+        
+        Step2_Detect --> Step3_Blocks{Type de contenu détecté}
+        
+        Step3_Blocks -- Texte natif --> Step4_Text[Extraction directe<br/>via objets PDF]
+        Step3_Blocks -- Scan / Image --> Step5_Vision[<b>OCR: RapidOCR</b><br/>Reconnaissance optique de caractères]
+        Step3_Blocks -- Tableau --> Step6_Grid[<b>TableFormer</b><br/>Reconstruction structurelle Lignes/Colonnes]
+        
+        Step4_Text & Step5_Vision & Step6_Grid --> Step7_Reassemble[<b>Reflow & Reading Order</b><br/>Réordonnancement logique des blocs]
+        
+        Step7_Reassemble --> Step8_Unified[Création objet <b>DoclingDocument</b>]
+
+        %% --- BRANCHE 2 : Documents Bureautique (Office) ---
+        %% Technologie : Docling Structure Pipeline
+        
+        Router -- .docx, .pptx, .xlsx  --> Step1_Office[Ouverture du package ZIP/XML]
+        
+        Step1_Office --> Step2_Struc[Parsing de l'arborescence XML]
+        Step2_Struc --> Step3_Hier[Identification Sémantique<br/>Styles H1, H2, Body]
+        Step3_Hier --> Step4_Lists[Normalisation des<br/>Listes à puces]
+        Step4_Lists --> Step5_Tables[Mapping des cellules Excel<br/>vers structure de Table]
+        
+        Step5_Tables --> Step8_Unified
+
+        %% --- BRANCHE 3 : Données Brutes (CSV) ---
+        %% Technologie : Python Standard Library
+        
+        Router -- .csv --> Step1_Row[Lecture via <b>csv.DictReader</b>]
+        Step1_Row --> Step2_Group[Regroupement par <b>Batch</b><br/>ex: 500 lignes]
+        Step2_Group --> Step3_Label[Formatage Clé:Valeur]
+        Step3_Label --> Step9_Final
+
+        %% --- SORTIE ---
+        Step8_Unified --> Step_Enrich[<b>Enrichissement Métadonnées</b><br/>Extraction Titre, Auteur, Pages]
+        Step_Enrich --> Step_Export[Appel <b>export_to_markdown</b>]
+        Step_Export --> Step9_Final
+        
+        %% Gestion des erreurs (Fallback)
+        Step1_Load -- "Erreur ?" --> Fallback_Check{Échec Docling ?}
+        Fallback_Check -- Oui --> Fallback_Lib[<b>Fallback Classique</b><br/>PyMuPDF / python-docx / openpyxl]
+        Fallback_Lib --> Clean_Artifacts["<b>Nettoyage Artefacts</b><br/>Regex (......, ____)"]
+        Clean_Artifacts --> Step9_Final
+
+        Step9_Final[<b>Résultat Markdown Standardisé</b><br/>Prêt pour l'Embedding/RAG]
+    end
+
+    %% --- BLOC 2 : INTELLIGENT CHUNKING ---
+    subgraph Chunking_Process [<b>PHASE 2 : CHUNKING INTELLIGENT</b>]
+        Step9_Final --> Start_Chunking[Analyse de la structure Markdown]
+        
+        Start_Chunking --> Split_Headers[<b>1. Découpage par Sections</b><br/>Headers Markdown #, ##]
+        
+        Split_Headers --> Check_Size{Taille section > 500 ?}
+        
+        %% CAS 1 : Section OK
+        Check_Size -- Non --> Add_Chunk[Ajout au buffer courant]
+        Add_Chunk --> Check_Full{Buffer plein ?}
+        Check_Full -- Oui --> Final_Chunk[<b>Génération d'un Chunk</b>]
+
+        %% CAS 2 : Récursif
+        Check_Size -- Oui --> Recursive_Split[<b>2. Découpage Récursif</b><br/>Par Paragraphes \n\n]
+        
+        Recursive_Split --> Is_Table{"Est-ce un Tableau ?<br/>markdown: | Col |"}
+        
+        Is_Table -- Oui --> Keep_Table[Tableau conservé entier<br/>même si > limite]
+        Keep_Table --> Final_Chunk
+        
+        Is_Table -- Non --> Split_Sent[<b>3. Découpage fin</b><br/>Par phrases]
+        Split_Sent --> Final_Chunk
+
+        %% Overlap
+        Final_Chunk --> Overlap[<b>Gestion de l'Overlap</b><br/>Conservation contexte: 150 chars]
+        Overlap --> Gen_ID["<b>Génération ID Unique</b><br/>Hash MD5 (Path + Page + Index)"]
+        Gen_ID --> Vector_Ready([<b>CHUNKS PRÊTS POUR INDEXATION</b>])
+    end
+
+    %% --- BLOC 3 : INDEXATION & STOCKAGE (main.py) ---
+    subgraph Storage_Process [<b>PHASE 3 : STOCKAGE & RECHERCHE</b>]
+        Vector_Ready --> Batch_Queue[Accumulation dans Batch<br/>ex: 100 chunks]
+        
+        Batch_Queue --> Batch_Full{Batch plein ?}
+        
+        Batch_Full -- Non --> Wait_More[Attente nouveaux chunks]
+        
+        Batch_Full -- Oui --> Process_Batch[<b>DÉBUT TRAITEMENT BATCH</b>]
+        
+        Process_Batch --> Call_Model[<b>Appel Modèle Embedding</b><br/>Transformation Texte -> Vecteur]
+        Call_Model --> Embedding[<b>Vecteurs Générés</b><br/>Liste de flottants]
+        
+        Embedding --> Dual_Write[<b>Dispatcher</b>]
+        
+        %% Branche Meilisearch (Recherche Full-text)
+        Dual_Write -- Texte + Métadonnées --> Meili_Branch[<b>MEILISEARCH</b><br/>Moteur de Recherche Textuel]
+        Meili_Branch --> Meili_Try{Succès ?}
+        Meili_Try -- Oui --> Meili_Index[(Index Documents)]
+        Meili_Try -- Non --> Log_Error[Log Erreur & Continue]
+
+        %% Branche Qdrant (Recherche Sémantique)
+        Dual_Write -- Vecteurs + Payload --> Qdrant_Branch[<b>QDRANT</b><br/>Base de Données Vectorielle]
+        Qdrant_Branch --> Qdrant_Try{Succès ?}
+        Qdrant_Try -- Oui --> Qdrant_Coll[(Collection Vecteurs)]
+        Qdrant_Try -- Non --> Log_Error
+    end
+
+    %% Styles pour mettre en valeur les technologies
+    style Step9_Final fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style Docling_Process fill:#e3f2fd,stroke:#1565c0
+    style Chunking_Process fill:#fff3e0,stroke:#e65100
+    style Storage_Process fill:#f3e5f5,stroke:#7b1fa2

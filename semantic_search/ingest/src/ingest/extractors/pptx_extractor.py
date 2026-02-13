@@ -63,21 +63,34 @@ class PptxExtractor(Extractor):
 
             if slides:
                 for idx, slide_text in enumerate(slides, start=1):
+                    # Essayer de trouver un titre dans le texte de la slide (souvent la première ligne)
+                    slide_title = ""
+                    lines = slide_text.split("\n")
+                    if lines:
+                        # Nettoyage Markdown simple
+                        header = lines[0].strip()
+                        if header.startswith("#"):
+                            slide_title = header.lstrip("#").strip()
+                    
                     yield ExtractedPage(
                         page_number=idx,
                         text=slide_text,
+                        title=slide_title if slide_title else f"{file_path.stem} - Slide {idx}",
                         metadata={
                             "source_type": "pptx",
                             "extraction_method": "docling",
+                            "page_count": len(slides)
                         },
                     )
             else:
                 yield ExtractedPage(
                     page_number=1,
                     text=full_markdown,
+                    title=file_path.stem.replace("_", " "),
                     metadata={
                         "source_type": "pptx",
                         "extraction_method": "docling",
+                        "page_count": 1
                     },
                 )
 
