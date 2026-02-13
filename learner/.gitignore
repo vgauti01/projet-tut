@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Unsloth & Training
+unsloth_compiled_cache/
+unsloth_training_checkpoints/
+triton_cache/
+inductor_cache/
+
+# Models & Outputs
+sp2322_lora/
+sp2322_gguf/
+*.gguf
+*.safetensors
+
+# Jupyter
+.ipynb_checkpoints
