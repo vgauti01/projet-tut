@@ -43,7 +43,7 @@ MAX_SEQ_LENGTH = 2048
 print("Chargement du modèle de base Qwen3-4B-Thinking en quantification 4 bits...")
 model, tokenizer = FastLanguageModel.from_pretrained(
     # On utilise explicitement la version bnb-4bit pour éviter un téléchargement caché
-    model_name = "unsloth/Qwen3-4B-Thinking-2507",
+    model_name = "unsloth/Qwen3-4B-Instruct-2507",
 
     max_seq_length = MAX_SEQ_LENGTH,
 
@@ -373,8 +373,8 @@ for i, question in enumerate(questions_test):
     print()
 
     # On ne teste qu'une question pour gagner du temps.
-    # Decommentez le break pour tester toutes les questions.
-    break
+    # Commentez le break pour tester toutes les questions.
+    # break
 
 
 # =============================================================================

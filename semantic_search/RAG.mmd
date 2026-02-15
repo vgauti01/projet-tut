@@ -1,119 +1,117 @@
-graph TD
+flowchart TD
+    %% --- DÉFINITION DES STYLES ---
+    classDef default fill:#fff,stroke:#333,stroke-width:1px;
+    
+    %% Style des nœuds
+    classDef input fill:#fff3e0,stroke:#ff9800,stroke-width:2px,rx:5,ry:5,color:#ef6c00;
+    classDef process fill:#e1f5fe,stroke:#039be5,stroke-width:2px,rx:5,ry:5,color:#01579b;
+    classDef ai fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:5,ry:5,color:#4a148c;
+    classDef decision fill:#fff,stroke:#ff6f00,stroke-width:2px,shape:diamond;
+    classDef storage fill:#e8f5e9,stroke:#43a047,stroke-width:2px,shape:cylinder,color:#1b5e20;
+    classDef output fill:#e8eaf6,stroke:#3949ab,stroke-width:3px,rx:10,ry:10,color:#1a237e;
+    classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+
     %% --- BLOC 1 : INGESTION & PARSING DOCLING ---
-    subgraph Docling_Process [<b>PHASE 1 : DOCLING & EXTRACTION</b>]
-        %% --- Entrée ---
-        Start[Réception du fichier] --> Router{Extension du fichier}
+    subgraph Docling_Process [<b>📂 PHASE 1 : EXTRACTION & NORMALISATION</b>]
+        direction TB
+        
+        %% Entrée
+        Start(fa:fa-file-import Réception Fichier):::input --> Router{Extension ?}:::decision
 
-        %% --- BRANCHE 1 : Documents Visuels (PDF, Images) ---
-        %% Technologie : Docling Vision Pipeline
+        %% --- BRANCHE 1 : Documents Visuels ---
+        Router -- ".pdf, .img" --> Step1_Load[fa:fa-eye Chargement Docling]:::process
+        Step1_Load --> Step2_Detect["fa:fa-border-all Layout Analysis<br/><i>(Détection zones)</i>"]:::ai
         
-        Router -- .pdf, .png, .jpg --> Step1_Load[Chargement du <b>DocumentConverter</b>]
-        Step1_Load --> Step2_Detect[<b>Layout Analysis</b><br/>Découpage visuel en blocs]
+        Step2_Detect --> Step3_Blocks{Type ?}:::decision
         
-        Step2_Detect --> Step3_Blocks{Type de contenu détecté}
+        Step3_Blocks -- Texte --> Step4_Text[fa:fa-font Extract PDF Natif]:::process
+        Step3_Blocks -- Image --> Step5_Vision[fa:fa-camera OCR RapidOCR]:::ai
+        Step3_Blocks -- Tableau --> Step6_Grid[fa:fa-table TableFormer]:::ai
         
-        Step3_Blocks -- Texte natif --> Step4_Text[Extraction directe<br/>via objets PDF]
-        Step3_Blocks -- Scan / Image --> Step5_Vision[<b>OCR: RapidOCR</b><br/>Reconnaissance optique de caractères]
-        Step3_Blocks -- Tableau --> Step6_Grid[<b>TableFormer</b><br/>Reconstruction structurelle Lignes/Colonnes]
+        Step4_Text & Step5_Vision & Step6_Grid --> Step7_Reassemble[fa:fa-sort-amount-down Reflow &<br/>Reading Order]:::process
+        Step7_Reassemble --> Step8_Unified
         
-        Step4_Text & Step5_Vision & Step6_Grid --> Step7_Reassemble[<b>Reflow & Reading Order</b><br/>Réordonnancement logique des blocs]
-        
-        Step7_Reassemble --> Step8_Unified[Création objet <b>DoclingDocument</b>]
-
-        %% --- BRANCHE 2 : Documents Bureautique (Office) ---
-        %% Technologie : Docling Structure Pipeline
-        
-        Router -- .docx, .pptx, .xlsx  --> Step1_Office[Ouverture du package ZIP/XML]
-        
-        Step1_Office --> Step2_Struc[Parsing de l'arborescence XML]
-        Step2_Struc --> Step3_Hier[Identification Sémantique<br/>Styles H1, H2, Body]
-        Step3_Hier --> Step4_Lists[Normalisation des<br/>Listes à puces]
-        Step4_Lists --> Step5_Tables[Mapping des cellules Excel<br/>vers structure de Table]
-        
+        %% --- BRANCHE 2 : Office ---
+        Router -- ".docx, .pptx" --> Step1_Office[fa:fa-file-word Parsing XML/ZIP]:::process
+        Step1_Office --> Step2_Struc[fa:fa-code Parsing Structure]:::process
+        Step2_Struc --> Step3_Hier[fa:fa-heading Titres & Styles]:::process
+        Step3_Hier --> Step4_Lists[fa:fa-list Listes à puces]:::process
+        Step4_Lists --> Step5_Tables[fa:fa-table Mapping Excel]:::process
         Step5_Tables --> Step8_Unified
-
-        %% --- BRANCHE 3 : Données Brutes (CSV) ---
-        %% Technologie : Python Standard Library
         
-        Router -- .csv --> Step1_Row[Lecture via <b>csv.DictReader</b>]
-        Step1_Row --> Step2_Group[Regroupement par <b>Batch</b><br/>ex: 500 lignes]
-        Step2_Group --> Step3_Label[Formatage Clé:Valeur]
+        %% --- BRANCHE 3 : CSV ---
+        Router -- ".csv" --> Step1_Row[fa:fa-file-csv Parsing CSV]:::process
+        Step1_Row --> Step2_Group[fa:fa-layer-group Batching]:::process
+        Step2_Group --> Step3_Label[fa:fa-tag Clé:Valeur]:::process
         Step3_Label --> Step9_Final
 
-        %% --- SORTIE ---
-        Step8_Unified --> Step_Enrich[<b>Enrichissement Métadonnées</b><br/>Extraction Titre, Auteur, Pages]
-        Step_Enrich --> Step_Export[Appel <b>export_to_markdown</b>]
+        %% Sortie Bloc 1
+        Step8_Unified[fa:fa-cube Objet Docling]:::process --> Step_Enrich[fa:fa-plus Enrichissement Meta]:::process
+        Step_Enrich --> Step_Export[fa:fa-markdown Export Markdown]:::process
         Step_Export --> Step9_Final
-        
-        %% Gestion des erreurs (Fallback)
-        Step1_Load -- "Erreur ?" --> Fallback_Check{Échec Docling ?}
-        Fallback_Check -- Oui --> Fallback_Lib[<b>Fallback Classique</b><br/>PyMuPDF / python-docx / openpyxl]
-        Fallback_Lib --> Clean_Artifacts["<b>Nettoyage Artefacts</b><br/>Regex (......, ____)"]
-        Clean_Artifacts --> Step9_Final
 
-        Step9_Final[<b>Résultat Markdown Standardisé</b><br/>Prêt pour l'Embedding/RAG]
+        %% Fallback
+        Step1_Load -.-> Fallback_Check{Échec ?}:::decision
+        Fallback_Check -- Oui --> Fallback_Lib[fa:fa-tools Fallback PyMuPDF]:::error
+        Fallback_Lib --> Clean_Artifacts[fa:fa-eraser Nettoyage Regex]:::process
+        Clean_Artifacts --> Step9_Final
+        
+        Step9_Final([fa:fa-check-circle Markdown Standard]):::output
     end
 
-    %% --- BLOC 2 : INTELLIGENT CHUNKING ---
-    subgraph Chunking_Process [<b>PHASE 2 : CHUNKING INTELLIGENT</b>]
-        Step9_Final --> Start_Chunking[Analyse de la structure Markdown]
+    %% --- BLOC 2 : CHUNKING INTELLIGENT ---
+    subgraph Chunking_Process [<b>✂️ PHASE 2 : DÉCOUPAGE (CHUNKING)</b>]
+        direction TB
+        Step9_Final --> Start_Chunking[fa:fa-search Analyse Structure]:::process
         
-        Start_Chunking --> Split_Headers[<b>1. Découpage par Sections</b><br/>Headers Markdown #, ##]
+        Start_Chunking --> Split_Headers[fa:fa-heading Split par Sections<br/><i>Header #</i>]:::process
+        Split_Headers --> Check_Size{Taille > 500?}:::decision
         
-        Split_Headers --> Check_Size{Taille section > 500 ?}
-        
-        %% CAS 1 : Section OK
-        Check_Size -- Non --> Add_Chunk[Ajout au buffer courant]
-        Add_Chunk --> Check_Full{Buffer plein ?}
-        Check_Full -- Oui --> Final_Chunk[<b>Génération d'un Chunk</b>]
+        %% Cas simple
+        Check_Size -- Non --> Add_Chunk[Ajout au Buffer]:::process
+        Add_Chunk --> Check_Full{Buffer Full?}:::decision
+        Check_Full -- Oui --> Final_Chunk[fa:fa-puzzle-piece Chunk Candidat]:::process
 
-        %% CAS 2 : Récursif
-        Check_Size -- Oui --> Recursive_Split[<b>2. Découpage Récursif</b><br/>Par Paragraphes \n\n]
+        %% Cas complexe
+        Check_Size -- Oui --> Recursive_Split[fa:fa-cut Split Récursif<br/><i>Paragraphes</i>]:::process
+        Recursive_Split --> Is_Table{Tableau ?}:::decision
         
-        Recursive_Split --> Is_Table{"Est-ce un Tableau ?<br/>markdown: | Col |"}
-        
-        Is_Table -- Oui --> Keep_Table[Tableau conservé entier<br/>même si > limite]
+        Is_Table -- Oui --> Keep_Table[fa:fa-table Garder Table Entière]:::process
         Keep_Table --> Final_Chunk
         
-        Is_Table -- Non --> Split_Sent[<b>3. Découpage fin</b><br/>Par phrases]
+        Is_Table -- Non --> Split_Sent[fa:fa-quote-left Split Phrases]:::process
         Split_Sent --> Final_Chunk
-
-        %% Overlap
-        Final_Chunk --> Overlap[<b>Gestion de l'Overlap</b><br/>Conservation contexte: 150 chars]
-        Overlap --> Gen_ID["<b>Génération ID Unique</b><br/>Hash MD5 (Path + Page + Index)"]
-        Gen_ID --> Vector_Ready([<b>CHUNKS PRÊTS POUR INDEXATION</b>])
+        
+        Final_Chunk --> Overlap["fa:fa-clone Gestion Overlap<br/><i>(Contexte)</i>"]:::process
+        Overlap --> Gen_ID[fa:fa-fingerprint ID Unique MD5]:::ai
+        Gen_ID --> Vector_Ready([fa:fa-check-double Chunks Prêts]):::output
     end
 
-    %% --- BLOC 3 : INDEXATION & STOCKAGE (main.py) ---
-    subgraph Storage_Process [<b>PHASE 3 : STOCKAGE & RECHERCHE</b>]
-        Vector_Ready --> Batch_Queue[Accumulation dans Batch<br/>ex: 100 chunks]
+    %% --- BLOC 3 : STOCKAGE & RECHERCHE ---
+    subgraph Storage_Process [<b>🚀 PHASE 3 : VECTORISATION & STOCKAGE</b>]
+        direction TB
+        Vector_Ready --> Batch_Queue[fa:fa-layer-group Batch Accumulator]:::process
+        Batch_Queue --> Batch_Full_2{Batch Plein?}:::decision
         
-        Batch_Queue --> Batch_Full{Batch plein ?}
+        Batch_Full_2 -- Oui --> Process_Batch[fa:fa-cogs Traitement]:::process
+        Process_Batch --> Call_Model[fa:fa-brain Modèle Embedding<br/><i>Text → Vector</i>]:::ai
+        Call_Model --> Embedding[fa:fa-project-diagram Vecteurs]:::process
         
-        Batch_Full -- Non --> Wait_More[Attente nouveaux chunks]
+        Embedding --> Dual_Write{Dispatcher}:::decision
         
-        Batch_Full -- Oui --> Process_Batch[<b>DÉBUT TRAITEMENT BATCH</b>]
+        %% Meilisearch
+        Dual_Write -->|Texte| Meili_Branch["fa:fa-search Meilisearch<br/><i>(Keyword Search)</i>"]:::process
+        Meili_Branch --> Meili_Index[(fa:fa-database Index Meili)]:::storage
         
-        Process_Batch --> Call_Model[<b>Appel Modèle Embedding</b><br/>Transformation Texte -> Vecteur]
-        Call_Model --> Embedding[<b>Vecteurs Générés</b><br/>Liste de flottants]
-        
-        Embedding --> Dual_Write[<b>Dispatcher</b>]
-        
-        %% Branche Meilisearch (Recherche Full-text)
-        Dual_Write -- Texte + Métadonnées --> Meili_Branch[<b>MEILISEARCH</b><br/>Moteur de Recherche Textuel]
-        Meili_Branch --> Meili_Try{Succès ?}
-        Meili_Try -- Oui --> Meili_Index[(Index Documents)]
-        Meili_Try -- Non --> Log_Error[Log Erreur & Continue]
+        %% Qdrant
+        Dual_Write -->|Vecteur| Qdrant_Branch["fa:fa-rocket Qdrant<br/><i>(Semantic Search)</i>"]:::process
+        Qdrant_Branch --> Qdrant_Coll[(fa:fa-database Collection Qdrant)]:::storage
 
-        %% Branche Qdrant (Recherche Sémantique)
-        Dual_Write -- Vecteurs + Payload --> Qdrant_Branch[<b>QDRANT</b><br/>Base de Données Vectorielle]
-        Qdrant_Branch --> Qdrant_Try{Succès ?}
-        Qdrant_Try -- Oui --> Qdrant_Coll[(Collection Vecteurs)]
-        Qdrant_Try -- Non --> Log_Error
+        Meili_Branch -.-> Log_Error[fa:fa-exclamation-circle Log Erreur]:::error
+        Qdrant_Branch -.-> Log_Error
     end
 
-    %% Styles pour mettre en valeur les technologies
-    style Step9_Final fill:#d4edda,stroke:#28a745,stroke-width:2px
-    style Docling_Process fill:#e3f2fd,stroke:#1565c0
-    style Chunking_Process fill:#fff3e0,stroke:#e65100
-    style Storage_Process fill:#f3e5f5,stroke:#7b1fa2
+    %% Styles Subgraphs
+    style Docling_Process fill:#f8fcff,stroke:#0277bd,stroke-width:2px,stroke-dasharray: 5 5
+    style Chunking_Process fill:#fff8e1,stroke:#ff6f00,stroke-width:2px,stroke-dasharray: 5 5
+    style Storage_Process fill:#f1f8e9,stroke:#558b2f,stroke-width:2px,stroke-dasharray: 5 5
