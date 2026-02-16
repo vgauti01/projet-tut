@@ -31,9 +31,21 @@ class EmbeddingService:
         """Retourne la dimension des vecteurs d'embeddings."""
         return self.model.get_sentence_embedding_dimension()
 
-    def encode_batch(self, texts: List[str], show_progress: bool = False) -> Any:
-        """Génère les embeddings pour un batch de textes."""
+    def encode_documents(self, texts: List[str], show_progress: bool = False) -> Any:
+        """Encode des documents (chunks). Utilise encode_document si disponible (encoding asymétrique)."""
+        if hasattr(self.model, 'encode_document'):
+            return self.model.encode_document(texts, show_progress_bar=show_progress)
         return self.model.encode(texts, show_progress_bar=show_progress)
+
+    def encode_query(self, text: str) -> Any:
+        """Encode une requête. Utilise encode_query si disponible (encoding asymétrique)."""
+        if hasattr(self.model, 'encode_query'):
+            return self.model.encode_query(text)
+        return self.model.encode(text)
+
+    def encode_batch(self, texts: List[str], show_progress: bool = False) -> Any:
+        """Alias vers encode_documents pour compatibilité."""
+        return self.encode_documents(texts, show_progress=show_progress)
 
 
 # Instance globale du service d'embeddings (lazy loading)

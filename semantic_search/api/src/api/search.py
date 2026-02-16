@@ -67,7 +67,7 @@ async def search_meilisearch(query: str, limit: int) -> List[Dict]:
     payload = {
         "q": normalized_query,
         "limit": limit * SEARCH_MULTIPLIER,
-        "attributesToRetrieve": ["id", "content", "title", "path", "page", "chunk_id", "source_type"],
+        "attributesToRetrieve": ["id", "content", "title", "path", "page", "chunk_id", "source_type", "headings"],
         "attributesToHighlight": ["content"]
     }
 
@@ -109,7 +109,10 @@ async def search_qdrant(query: str, limit: int) -> List[Dict]:
         """Effectue la recherche dans Qdrant en encodant la requête et en interrogeant le client Qdrant."""
         with ModelMetrics("embed"):
             normalized_query = normalize_query(query)
-            query_vector = embed_model.encode(normalized_query).tolist()
+            if hasattr(embed_model, 'encode_query'):
+                query_vector = embed_model.encode_query(normalized_query).tolist()
+            else:
+                query_vector = embed_model.encode(normalized_query).tolist()
         
         # Utilisation de query_points car search est manquant dans les versions récentes du client (1.16+)
         res = await qdrant_client.query_points(
