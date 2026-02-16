@@ -2,6 +2,35 @@
 
 Pipeline de fine-tuning pour creer un modele de langage expert sur l'encaisseuse **SP2322** (Club Industries). Utilise Unsloth pour un entrainement optimise de Qwen3-1.7B sur un jeu de donnees technique de questions/reponses, produisant un modele GGUF deployable dans le systeme RAG.
 
+## Concepts Théoriques Avancés
+
+### 1. LLM & Architecture Transformer
+Un **LLM (Large Language Model)** est un réseau de neurones profonds basé sur l'architecture **Transformer**. Sa fonction primaire est la modélisation du langage par le calcul de la probabilité conditionnelle du prochain token : $P(x_{t} | x_{1}, ..., x_{t-1})$.
+
+*   **Mécanisme d'Attention (Self-Attention)** : Le cœur du Transformer. Il permet au modèle de pondérer l'importance de chaque mot dans une séquence par rapport aux autres via des matrices de **Query (Q)**, **Key (K)** et **Value (V)**. Le calcul de l'attention est défini par : $\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$.
+*   **Tokens & Embeddings** : Le texte est fragmenté en tokens (sous-mots) puis projeté dans un espace vectoriel de haute dimension (embeddings), permettant de capturer les relations sémantiques complexes.
+*   **Pré-entraînement (Causal LLM)** : Le modèle est entraîné de manière auto-supervisée sur des téraoctets de données pour minimiser la *cross-entropy loss*, développant ainsi une compréhension contextuelle massive.
+
+### 2. Fine-Tuning Supervisé (SFT)
+Le **SFT** consiste à ajuster les poids d'un modèle pré-entraîné sur un dataset étiqueté de paires instruction/réponse. Contrairement au pré-entraînement, l'objectif est d'aligner la distribution des sorties du modèle sur un domaine spécifique (ici, la maintenance industrielle).
+*   **Transfer Learning** : On réutilise les connaissances générales (grammaire, logique) pour ne se concentrer que sur l'apprentissage des spécificités techniques.
+*   **Lutte contre les hallucinations** : En restreignant l'espace de réponse au domaine de la SP2322, on augmente la "fidélité factualle" du modèle.
+
+### 3. LoRA (Low-Rank Adaptation)
+Pour éviter de modifier les milliards de paramètres du modèle (coûteux en VRAM), nous utilisons **LoRA**.
+*   **Principe Mathématique** : On gèle les poids originaux $W_0$ et on injecte une mise à jour $\Delta W$ via deux matrices de bas rang $A$ et $B$ telles que $W = W_0 + AB$.
+*   **Réduction de complexité** : Si $W$ est de dimension $d \times d$, on passe de $d^2$ paramètres à entraîner à $2 \times d \times r$, où $r$ (le rank) est très petit (ex: 32). Cela réduit le nombre de paramètres entraînables de >99% sans perte de performance notable.
+
+### 4. Quantification & QLoRA
+La **Quantification (NF4 - NormalFloat 4-bit)** est une technique de compression post-entraînement ou durant l'entraînement (QLoRA).
+*   **Binarisation des poids** : On convertit les poids 16-bit (Float16) en 4-bit. Cela permet de charger un modèle de 1.7B paramètres dans moins de 2 GB de VRAM.
+*   **Double Quantification** : Technique utilisée pour compresser les constantes de quantification elles-mêmes, optimisant encore plus l'empreinte mémoire.
+
+### 5. Optimisation Unsloth
+**Unsloth** optimise le pipeline d'entraînement via :
+*   **Trition Kernels** : Réécriture manuelle des noyaux de calcul (Softmax, RoPE, LoRA) en langage Triton pour une exécution directe sur le matériel GPU.
+*   **Moins de VRAM** : Utilisation de techniques de *Manual Backpropagation* pour libérer la mémoire des graphes de calcul intermédiaires plus rapidement.
+
 ## Structure du projet
 
 ```
