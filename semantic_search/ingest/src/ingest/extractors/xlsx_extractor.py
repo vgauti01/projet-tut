@@ -53,7 +53,8 @@ class XlsxExtractor(Extractor):
             converter = self._get_converter()
 
             result = converter.convert(str(file_path))
-            full_markdown = result.document.export_to_markdown()
+            doc = result.document
+            full_markdown = doc.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path}")
@@ -66,6 +67,7 @@ class XlsxExtractor(Extractor):
                     "source_type": "xlsx",
                     "extraction_method": "docling",
                 },
+                docling_document=doc,
             )
 
         except Exception as e:

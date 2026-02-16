@@ -9,13 +9,111 @@ from typing import Iterator, List, Dict, Any
 from tqdm import tqdm
 from qdrant_client.http import models
 
-from .settings import CHUNK_SIZE, CHUNK_OVERLAP, MEILI_URL, INDEX_NAME, QDRANT_URL
+from .settings import CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS, EMBED_MODEL, MEILI_URL, INDEX_NAME, QDRANT_URL
 from .text_utils import chunk_text, clean_pdf_artifacts
 from .extractors import get_extractor
 from .services.embedding_service import EmbeddingService
 from .services.index_service import get_qdrant_client
 
 logger = logging.getLogger(__name__)
+
+# Singleton lazy pour le HybridChunker
+_hybrid_chunker = None
+
+
+def _get_hybrid_chunker():
+    """Retourne un singleton HybridChunker configuré avec le tokenizer du modèle d'embedding."""
+    global _hybrid_chunker
+    if _hybrid_chunker is None:
+        from docling.chunking import HybridChunker
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL)
+        _hybrid_chunker = HybridChunker(
+            tokenizer=tokenizer,
+            max_tokens=CHUNK_MAX_TOKENS,
+            merge_peers=True,
+        )
+        logger.info(f"HybridChunker initialisé (max_tokens={CHUNK_MAX_TOKENS}, modèle={EMBED_MODEL})")
+    return _hybrid_chunker
+
+
+def _chunk_with_hybrid_chunker(
+    docling_document: Any,
+    title: str,
+    file_path: Path,
+    source_type: str,
+) -> Iterator[Dict[str, Any]]:
+    """
+    Chunke un DoclingDocument avec le HybridChunker structure-aware.
+
+    Utilise chunker.contextualize() pour enrichir chaque chunk avec les headings parents.
+    Fallback vers chunk_text() si le chunker échoue.
+    """
+    try:
+        chunker = _get_hybrid_chunker()
+        chunks = list(chunker.chunk(docling_document))
+
+        if not chunks:
+            logger.warning(f"HybridChunker n'a produit aucun chunk pour {file_path}, fallback vers chunk_text")
+            yield from _fallback_chunk_text(docling_document.export_to_markdown(), title, file_path, source_type)
+            return
+
+        clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
+        path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+
+        for idx, chunk in enumerate(chunks):
+            # Texte enrichi avec headings parents via contextualize()
+            contextualized_text = chunker.contextualize(chunk)
+            content = f"Document: {title}\n\n{contextualized_text}"
+
+            # Extraction des headings depuis les métadonnées du chunk
+            headings = []
+            if hasattr(chunk, 'meta') and hasattr(chunk.meta, 'headings'):
+                headings = list(chunk.meta.headings) if chunk.meta.headings else []
+
+            doc_id = f"{clean_filename}_{path_hash}_1_{idx}"
+
+            yield {
+                "id": doc_id,
+                "title": title,
+                "path": str(file_path),
+                "page": 1,
+                "chunk_id": idx,
+                "content": content,
+                "source_type": source_type,
+                "headings": headings,
+            }
+
+    except Exception as e:
+        logger.error(f"HybridChunker a échoué pour {file_path}: {e}", exc_info=True)
+        logger.info(f"Fallback vers chunk_text() pour {file_path}")
+        markdown = docling_document.export_to_markdown()
+        yield from _fallback_chunk_text(markdown, title, file_path, source_type)
+
+
+def _fallback_chunk_text(
+    text: str,
+    title: str,
+    file_path: Path,
+    source_type: str,
+) -> Iterator[Dict[str, Any]]:
+    """Fallback: chunke du texte brut avec chunk_text()."""
+    clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
+    path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+
+    for idx, chunk in enumerate(chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP)):
+        doc_id = f"{clean_filename}_{path_hash}_1_{idx}"
+        yield {
+            "id": doc_id,
+            "title": title,
+            "path": str(file_path),
+            "page": 1,
+            "chunk_id": idx,
+            "content": chunk,
+            "source_type": source_type,
+            "headings": [],
+        }
 
 
 def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, Any]]:
@@ -44,37 +142,42 @@ def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, A
                 if not page.text.strip():
                     continue
 
-                # Nettoie les artefacts PDF uniquement pour les extractions fallback
-                # Docling produit du markdown propre, clean_pdf_artifacts le détruirait
-                extraction_method = page.metadata.get("extraction_method", "")
-                if extraction_method.endswith("_fallback"):
-                    cleaned_text = clean_pdf_artifacts(page.text)
-                else:
-                    cleaned_text = page.text
-
-                if not cleaned_text.strip():
-                    continue
-
-                # Récupère le type de source à partir des métadonnées de la page
                 source_type = page.metadata.get("source_type", "unknown")
 
-                # Parcourt les chunks de texte extraits de la page
-                for idx, chunk in enumerate(chunk_text(cleaned_text, CHUNK_SIZE, CHUNK_OVERLAP)):
-                    # Génère un ID unique et stable basé sur hash pour éviter les collisions
-                    clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
-                    # Ajout du hash du chemin complet pour garantir l'unicité
-                    path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
-                    doc_id = f"{clean_filename}_{path_hash}_{page.page_number}_{idx}"
+                # Chemin HybridChunker : si le DoclingDocument est disponible
+                if page.docling_document is not None:
+                    yield from _chunk_with_hybrid_chunker(
+                        page.docling_document, title, file_path, source_type
+                    )
+                else:
+                    # Chemin fallback : clean + chunk_text()
+                    extraction_method = page.metadata.get("extraction_method", "")
+                    if extraction_method.endswith("_fallback"):
+                        cleaned_text = clean_pdf_artifacts(page.text)
+                    else:
+                        cleaned_text = page.text
 
-                    yield {
-                        "id": doc_id,
-                        "title": title,
-                        "path": str(file_path),
-                        "page": page.page_number,
-                        "chunk_id": idx,
-                        "content": chunk,
-                        "source_type": source_type,
-                    }
+                    if not cleaned_text.strip():
+                        continue
+
+                    # Parcourt les chunks de texte extraits de la page
+                    for idx, chunk in enumerate(chunk_text(cleaned_text, CHUNK_SIZE, CHUNK_OVERLAP)):
+                        # Génère un ID unique et stable basé sur hash pour éviter les collisions
+                        clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
+                        # Ajout du hash du chemin complet pour garantir l'unicité
+                        path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+                        doc_id = f"{clean_filename}_{path_hash}_{page.page_number}_{idx}"
+
+                        yield {
+                            "id": doc_id,
+                            "title": title,
+                            "path": str(file_path),
+                            "page": page.page_number,
+                            "chunk_id": idx,
+                            "content": chunk,
+                            "source_type": source_type,
+                            "headings": [],
+                        }
 
         except Exception as e:
             logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
@@ -105,10 +208,10 @@ def process_batch(
     qdrant_success = 0
     qdrant_failed = 0
 
-    # Génération des embeddings pour le batch
+    # Génération des embeddings pour le batch (encoding asymétrique document)
     try:
         contents = [doc["content"] for doc in batch_docs]
-        embeddings = embedding_service.encode_batch(contents, show_progress=False)
+        embeddings = embedding_service.encode_documents(contents, show_progress=False)
     except Exception as e:
         logger.error(f"Erreur génération embeddings pour batch: {e}", exc_info=True)
         return 0, len(batch_docs), 0, len(batch_docs)

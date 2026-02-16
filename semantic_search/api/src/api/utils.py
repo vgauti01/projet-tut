@@ -86,6 +86,7 @@ def format_answer(query: str, hits: List[Tuple[Dict, float]], terms: List[str]) 
             "path": doc.get("path", "unknown"),
             "score": round(score, 4),
             "source_type": doc.get("source_type", "pdf"),
+            "headings": doc.get("headings", []),
         }
 
         excerpts.append({

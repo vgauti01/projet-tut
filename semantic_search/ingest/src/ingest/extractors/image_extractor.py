@@ -79,9 +79,10 @@ class ImageExtractor(Extractor):
 
             # Conversion de l'image avec Docling
             result = converter.convert(str(file_path))
+            doc = result.document
 
             # Extraction du texte complet avec structure préservée
-            full_markdown = result.document.export_to_markdown()
+            full_markdown = doc.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun texte détecté dans l'image {file_path} (OCR n'a rien trouvé)")
@@ -107,6 +108,7 @@ class ImageExtractor(Extractor):
                     "extraction_method": "docling_ocr",
                     "image_format": file_path.suffix.lower(),
                 },
+                docling_document=doc,
             )
 
             logger.info(f"Extraction OCR réussie: {len(full_markdown)} caractères détectés")
