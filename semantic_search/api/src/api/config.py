@@ -27,14 +27,6 @@ MIN_SCORE_THRESHOLD = float(os.getenv("MIN_SCORE_THRESHOLD", "0.01"))
 # Par exemple, si TOP_K est 5 et SEARCH_MULTIPLIER est 3, alors 15 résultats seront récupérés de chaque moteur de recherche avant d'être fusionnés et rerankés pour obtenir les 5 meilleurs résultats finaux.
 SEARCH_MULTIPLIER = int(os.getenv("SEARCH_MULTIPLIER", "3"))
 
-# Paramètres du mode hybride RAG + LLM
-# RAG_RELEVANCE_THRESHOLD : seuil de pertinence pour décider si les résultats RAG sont suffisamment pertinents
-# Si le meilleur score est en dessous de ce seuil, le système bascule en mode "knowledge" (connaissances générales du LLM)
-RAG_RELEVANCE_THRESHOLD = float(os.getenv("RAG_RELEVANCE_THRESHOLD", "0.3"))
-# RAG_MIN_RESULTS : nombre minimum de résultats pertinents pour utiliser le mode RAG
-# Si moins de résultats que ce seuil sont trouvés, le système bascule en mode "knowledge"
-RAG_MIN_RESULTS = int(os.getenv("RAG_MIN_RESULTS", "1"))
-
 # Configuration CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 
