@@ -117,6 +117,8 @@ services:
       - ./data/models:/app/models
       # Monte les logs de l'API dans un volume persistant pour faciliter le débogage et la surveillance, tout en évitant d'écrire directement sur le disque de l'hôte.
       - api_logs:/app/logs
+      # Monte le code source en lecture/écriture pour permettre les modifications en temps réel
+      - ./api/src:/app/src:rw
     tmpfs:
       # L'API peut générer des fichiers temporaires pour le cache, les sessions ou les téléchargements, et les stocke dans des tmpfs pour éviter d'écrire sur le disque de l'hôte, améliorant ainsi les performances et la sécurité.
       - /app/tmp:mode=1777,size=100m
@@ -136,6 +138,9 @@ services:
       context: ./ingest
       dockerfile: Dockerfile
     container_name: ingestor
+    # L'ingestor est un service ponctuel qui s'exécute une fois pour indexer les documents, puis s'arrête.
+    # Il est donc inclus dans un profil spécifique pour éviter de le lancer automatiquement avec les autres services.
+    profiles: ["ingestor"]
     # Ne redémarre pas automatiquement l'ingestor, car il est conçu pour s'exécuter une fois pour indexer les documents, puis s'arrêter.
     restart: "no"
     networks:
@@ -152,7 +157,8 @@ services:
       - HF_CACHE_DIR=/workdir/data/models
       - HF_HOME=/docling_cache
     volumes:
-      - ./:/workdir:ro
+      # Monte le code source de l'ingestor pour faciliter les modifications
+      - ./:/workdir:rw
       - ./data/docling_models:/docling_cache:rw
     depends_on:
       # L'ingestor doit attendre que l'API soit opérationnelle, car il dépend de la disponibilité de Meilisearch et Qdrant pour indexer les documents.

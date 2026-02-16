@@ -19,3 +19,5 @@ sp2322_gguf/
 
 # Jupyter
 .ipynb_checkpoints
+
+llama-*/

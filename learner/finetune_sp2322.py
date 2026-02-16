@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Fine-tuning Qwen3-4B pour l'encaisseuse SP2322
+Fine-tuning Qwen3-1.7B pour l'encaisseuse SP2322
 ================================================
-Script adapte du notebook Unsloth "Qwen3_(4B)-Thinking"
-pour entrainer un modele expert en depannage et assistance
-technique sur la machine SP2322 (encaisseuse club).
+Script adapte du notebook Unsloth pour entrainer un modele expert en depannage
+et assistance technique sur la machine SP2322 (encaisseuse club).
+Le modele 1.7B est choisi pour sa rapidite et sa faible consommation memoire,
+sans le mode "thinking" pour des reponses directes.
 
 Licence : LGPL-3.0 (Unsloth)
 """
@@ -13,22 +14,22 @@ Licence : LGPL-3.0 (Unsloth)
 # =============================================================================
 # 1. CHARGEMENT DU MODELE DE BASE
 # =============================================================================
-# On charge Qwen3-4B en quantification 4 bits pour tenir en memoire sur un
-# GPU gratuit (T4 = 16 Go VRAM). Unsloth optimise automatiquement le modele
-# pour un entrainement 2x plus rapide qu'avec HuggingFace classique.
+# On charge Qwen3-1.7B en quantification 4 bits. Ce modele tres leger (1.7B)
+# tourne facilement sur n'importe quel GPU moderne et meme certains CPU.
 
 print("Initialisation du chargement du modèle...")
 print("Note : Si le modèle n'est pas déjà dans le cache, le téléchargement peut sembler figé.")
 print("Vous pouvez lancer 'python download_model.py' au préalable pour voir la progression.")
 
-from unsloth import FastLanguageModel
-import torch
 import os
-
 # Désactive les liens symboliques sur Windows pour éviter l'erreur de privilèges [WinError 1314]
+# DOIT ETRE FAIT AVANT L'IMPORT DE UNSLOTH/HUGGINGFACE
 os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
 # Optionnel : Accélère les téléchargements HuggingFace si hf-transfer est installé
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
+from unsloth import FastLanguageModel
+import torch
 
 # Correction pour Triton/Inductor sur Windows (évite les erreurs de chemin trop long dans AppData)
 short_cache_base = os.path.join(os.path.expanduser("~"), ".tc") 
@@ -37,13 +38,13 @@ os.environ["TORCHINDUCTOR_CACHE_DIR"] = os.path.join(os.path.expanduser("~"), ".
 
 # Longueur maximale des sequences en tokens.
 # 2048 est suffisant pour nos Q/R techniques (rarement > 1000 tokens).
-# Augmentez a 4096 si vos reponses sont tres longues.
+# Augmenter a 4096 si les reponses sont tres longues.
 MAX_SEQ_LENGTH = 2048
 
-print("Chargement du modèle de base Qwen3-4B-Thinking en quantification 4 bits...")
+print("Chargement du modèle de base Qwen3-1.7B en quantification 4 bits...")
 model, tokenizer = FastLanguageModel.from_pretrained(
     # On utilise explicitement la version bnb-4bit pour éviter un téléchargement caché
-    model_name = "unsloth/Qwen3-4B-Instruct-2507",
+    model_name = "unsloth/Qwen3-1.7B-unsloth-bnb-4bit",
 
     max_seq_length = MAX_SEQ_LENGTH,
 
@@ -75,8 +76,7 @@ model = FastLanguageModel.get_peft_model(
     model,
 
     # Rang LoRA : plus c'est eleve, plus le modele peut apprendre de choses,
-    # mais plus ca coute en memoire. 32 est un bon compromis.
-    # Pour un dataset petit (87 exemples), 16 pourrait suffire.
+    # mais plus ca coute en memoire. 32 est un compromis.
     r = 32,
 
     # Couches ciblees par LoRA : on entraine les projections d'attention
@@ -132,8 +132,8 @@ from unsloth.chat_templates import get_chat_template
 
 # On applique le template de chat Qwen3 au tokenizer.
 # On utilise le template standard "qwen3" car notre dataset ne contient pas
-# de blocs <think>. Le modele pourra toujours utiliser ses capacites de raisonnement
-# de base lors de l'inference si on le souhaite.
+# de blocs <think>. Le modele n'utilisera PAS ses capacites de raisonnement 'thinking'
+# pour rester concis et rapide.
 tokenizer = get_chat_template(
     tokenizer,
     chat_template = "qwen3",
@@ -142,9 +142,7 @@ tokenizer = get_chat_template(
 import json
 from datasets import Dataset
 
-# --- Chargement du fichier JSONL local ---
-# Le fichier finetune_sp2322.jsonl contient 87 paires Q/R techniques
-# sur l'encaisseuse SP2322, extraites de la documentation.
+# Chargement du fichier JSONL local
 DATASET_PATH = "finetune_sp2322.jsonl"
 
 conversations_list = []
@@ -175,6 +173,7 @@ def formatting_prompts_func(examples):
             convo,
             tokenize=False,              # Retourne du texte, pas des tokens
             add_generation_prompt=False,  # Pas de prompt de generation (on entraine)
+            enable_thinking=False,         # Pas de tokens de thinking (on veut des reponses directes)
         )
         for convo in convos
     ]
@@ -193,7 +192,6 @@ print("...")
 # 5. CONFIGURATION DE L'ENTRAINEMENT
 # =============================================================================
 # On utilise SFTTrainer (Supervised Fine-Tuning) de la bibliotheque TRL.
-# Les parametres sont adaptes pour notre petit dataset de 87 exemples.
 
 from trl import SFTTrainer, SFTConfig
 
@@ -207,7 +205,7 @@ trainer = SFTTrainer(
         dataset_text_field="text",
 
         # Taille du batch par GPU. 2 est un bon compromis memoire/vitesse
-        # sur un T4 (16 Go VRAM). Reduisez a 1 si vous manquez de memoire.
+        # Reduire a 1 si manque de memoire.
         per_device_train_batch_size=2,
 
         # Accumulation de gradient : simule un batch effectif de 2 x 4 = 8.
@@ -219,11 +217,9 @@ trainer = SFTTrainer(
         warmup_steps=5,
 
         # Nombre d'epoques (passages complets sur le dataset).
-        num_train_epochs=4,
-
-        # Pas de limite de steps : on fait les 4 epoques completes.
-        # (le script original limitait a 60 steps pour une demo rapide)
-        # max_steps = 60,
+        # Plus d'epoques permettent un meilleur apprentissage, mais prennent plus de temps.
+        # Trop d'epoques peuvent causer de l'overfitting (le modele memorise les exemples au lieu d'apprendre).
+        num_train_epochs=6,
 
         # Taux d'apprentissage. 2e-4 est le standard recommande par Unsloth
         # pour un fine-tuning efficace sur petit dataset.
@@ -413,22 +409,21 @@ except RuntimeError as e:
     print(f"\n[ATTENTION] La conversion automatique GGUF a echoue : {e}")
     print("Cependant, le modele fusionne (merged) a bien ete sauvegarde au format SafeTensors.")
     print(f"Vous pouvez le convertir manuellement en suivant ces instructions :")
+    print(f"""
+1. Clonez le repo llama.cpp : git clone https://github.com/ggml-org/llama.cpp
+2. S'assurer d'être dans l'environnement virtuel `learner`: `.\.venv\Scripts\activate` (Windows) ou `source .venv/bin/activate` (Linux/Mac)
+3. Convertir le modèle : `uv run llama.cpp/convert_hf_to_gguf.py sp2322_gguf/`
+4. Le fichier GGUF converti se trouvera dans `sp2322_gguf/` avec un nom comme `Sp2322_Gguf-1.7B-BF16.gguf`.
+5. Téléchargez les binaires de llama.cpp pour Windows pour quantification q4_k_m : https://github.com/ggml-org/llama.cpp/releases/
+6. Quantifiez le modèle en q4_k_m : `.\llama-b8067-bin-win-cuda-13.1-x64\llama-quantize.exe sp2322_gguf\Sp2322_Gguf-1.7B-BF16.gguf sp2322_gguf\sp2322_q4_k_m.gguf q4_k_m`
+7. Le modèle quantifié en q4_k_m se trouvera dans `sp2322_gguf/sp2322_q4_k_m.gguf`.
+    """)
 
 # Pour exporter en Q8_0 (meilleure qualite) :
 # model.save_pretrained_gguf(GGUF_OUTPUT_DIR, tokenizer, quantization_method="q8_0")
 
 # Pour exporter en 16 bits (pas de quantification, gros fichier) :
 # model.save_pretrained_gguf(GGUF_OUTPUT_DIR, tokenizer, quantization_method="f16")
-
-# --- 11c. Push vers HuggingFace Hub (optionnel) ---
-# Decommentez pour publier votre modele sur HuggingFace :
-# model.push_to_hub_gguf(
-#     "VOTRE_USERNAME/sp2322-expert-q4km",
-#     tokenizer,
-#     quantization_method="q4_k_m",
-#     token="hf_VotreToken",
-# )
-
 
 # =============================================================================
 # 12. INSTRUCTIONS POST-ENTRAINEMENT
@@ -444,8 +439,9 @@ Fichiers generes :
 
 Pour utiliser le modele GGUF dans votre systeme RAG :
   1. Copiez le fichier .gguf dans semantic_search/data/models/
+     (Le nom peut varier, ex: sp2322_gguf-unsloth.Q4_K_M.gguf)
   2. Modifiez le .env :
-     LLM_MODEL_PATH=/app/models/sp2322_gguf-unsloth-Q4_K_M.gguf
+     LLM_MODEL_PATH=/app/models/VotreFichier.gguf
   3. Relancez : docker compose up -d api
 
 Pour recharger les adaptateurs LoRA et continuer l'entrainement :

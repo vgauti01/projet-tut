@@ -1,5 +1,5 @@
-import { Clock, Search, Database, Shuffle, BarChart3, Cpu, Brain, BookOpen, Sparkles } from "lucide-react";
-import { SearchTimings, ResponseMode } from "../types";
+import { Clock, Search, Database, Shuffle, BarChart3, Cpu } from "lucide-react";
+import { SearchTimings } from "../types";
 
 const SEARCH_MODE_LABELS: Record<string, string> = {
   hybrid: "Hybride",
@@ -13,24 +13,6 @@ const SEARCH_MODE_COLORS: Record<string, string> = {
   meili_only: "text-amber-400",
   qdrant_only: "text-amber-400",
   failed: "text-red-400",
-};
-
-const RESPONSE_MODE_LABELS: Record<string, string> = {
-  rag: "Documents (RAG)",
-  knowledge: "Connaissances générales",
-  hybrid: "Hybride (Documents + Connaissances)",
-};
-
-const RESPONSE_MODE_COLORS: Record<string, string> = {
-  rag: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-  knowledge: "text-purple-400 bg-purple-500/10 border-purple-500/20",
-  hybrid: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
-};
-
-const RESPONSE_MODE_ICONS: Record<string, React.ReactNode> = {
-  rag: <BookOpen size={10} />,
-  knowledge: <Brain size={10} />,
-  hybrid: <Sparkles size={10} />,
 };
 
 interface TimingPillProps {
@@ -53,19 +35,15 @@ const TimingPill = ({ icon, label, value }: TimingPillProps) => {
 interface TimingBarProps {
   timings?: SearchTimings;
   searchMode?: string;
-  responseMode?: ResponseMode;
   variant?: "inline" | "block";
 }
 
-export const TimingBar = ({ timings, searchMode, responseMode, variant = "inline" }: TimingBarProps) => {
-  if (!timings && !searchMode && !responseMode) return null;
+export const TimingBar = ({ timings, searchMode, variant = "inline" }: TimingBarProps) => {
+  if (!timings && !searchMode) return null;
 
   const modeLabel = searchMode ? SEARCH_MODE_LABELS[searchMode] || searchMode : null;
   const modeColor = searchMode ? SEARCH_MODE_COLORS[searchMode] || "text-muted-foreground" : "";
-  
-  const responseModeLabel = responseMode ? RESPONSE_MODE_LABELS[responseMode] || responseMode : null;
-  const responseModeColor = responseMode ? RESPONSE_MODE_COLORS[responseMode] || "text-muted-foreground" : "";
-  const responseModeIcon = responseMode ? RESPONSE_MODE_ICONS[responseMode] : null;
+
 
   const totalSearch =
     (timings?.meilisearch_ms || 0) +
@@ -79,16 +57,6 @@ export const TimingBar = ({ timings, searchMode, responseMode, variant = "inline
     <div
       className={`flex ${isBlock ? "flex-col gap-2" : "flex-wrap items-center gap-1.5"} text-[11px]`}
     >
-      {/* Response mode badge (prioritaire) */}
-      {responseModeLabel && (
-        <div
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-medium ${responseModeColor}`}
-        >
-          {responseModeIcon}
-          <span>{responseModeLabel}</span>
-        </div>
-      )}
-
       {/* Search mode badge */}
       {modeLabel && (
         <div

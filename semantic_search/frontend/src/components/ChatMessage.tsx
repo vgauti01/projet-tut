@@ -70,12 +70,11 @@ export const ChatMessageBubble = ({ message }: ChatMessageProps) => {
         )}
 
         {/* Timings */}
-        {!isUser && !message.isStreaming && (message.timings || message.searchMode || message.responseMode) && (
+        {!isUser && !message.isStreaming && (message.timings || message.searchMode) && (
           <div className="mt-3 pt-3 border-t border-border/50">
             <TimingBar
               timings={message.timings}
               searchMode={message.searchMode}
-              responseMode={message.responseMode}
               variant="block"
             />
           </div>

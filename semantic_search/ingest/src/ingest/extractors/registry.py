@@ -10,6 +10,7 @@ from .pptx_extractor import PptxExtractor
 from .csv_extractor import CsvExtractor
 from .txt_extractor import TxtExtractor
 from .image_extractor import ImageExtractor
+from .html_extractor import HtmlExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ _EXTRACTORS: List[type[Extractor]] = [
     CsvExtractor,
     TxtExtractor,
     ImageExtractor,
+    HtmlExtractor,
 ]
 
 # Cache singleton : une instance par classe d'extracteur

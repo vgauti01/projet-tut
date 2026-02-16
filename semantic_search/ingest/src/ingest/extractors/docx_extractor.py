@@ -63,11 +63,9 @@ class DocxExtractor(Extractor):
             yield ExtractedPage(
                 page_number=1,
                 text=full_markdown,
-                title=file_path.stem.replace("_", " "),
                 metadata={
                     "source_type": "docx",
                     "extraction_method": "docling",
-                    "page_count": len(result.document.pages) if hasattr(result.document, "pages") else 0
                 },
             )
 

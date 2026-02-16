@@ -48,7 +48,6 @@ class CsvExtractor(Extractor):
                     yield ExtractedPage(
                         page_number=batch_num,
                         text="\n".join(batch),
-                        title=f"{file_path.stem.replace('_', ' ')} - Page {batch_num}",
                         metadata={"source_type": "csv"},
                     )
                     batch = []
@@ -59,6 +58,5 @@ class CsvExtractor(Extractor):
                 yield ExtractedPage(
                     page_number=batch_num,
                     text="\n".join(batch),
-                    title=f"{file_path.stem.replace('_', ' ')} - Page {batch_num}",
                     metadata={"source_type": "csv"},
                 )
