@@ -142,7 +142,7 @@ COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 # chown -R: Change récursivement le propriétaire
 #   → L'utilisateur appuser peut écrire dans ces dossiers
 #   → -R inclut tous les sous-dossiers futurs
-RUN mkdir -p /app/logs /app/data /home/appuser/.cache && \
+RUN mkdir -p /app/logs /app/data /app/models /home/appuser/.cache && \
     chown -R appuser:appuser /app /home/appuser/.cache
 
 # Copie du code source de l'application

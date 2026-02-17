@@ -126,14 +126,15 @@ RUN apt-get update && \
 # UID/GID 1000: Convention pour le premier utilisateur non-système
 #   → Compatible avec la plupart des systèmes Linux
 #   → Facilite le montage de volumes (permissions cohérentes)
-RUN groupadd -r ingestuser && \
-    useradd -r -g ingestuser -u 1001 -m -s /sbin/nologin ingestuser
+RUN groupadd -r ingestuser -g 1000 && \
+    useradd -r -g ingestuser -u 1000 -m -s /sbin/nologin ingestuser
 
 
 # Création des répertoires applicatifs avec permissions appropriées
 # Crée aussi le répertoire .cache pour les modèles Hugging Face et Sentence Transformers
 # /docling_cache pour les modèles Docling (layout detection, OCR)
-RUN mkdir -p /app/logs /app/data /home/ingestuser/.cache /docling_cache && \
+# /app/models est créé ici pour que Docker initialise le volume nommé avec les bonnes permissions
+RUN mkdir -p /app/logs /app/data /app/models /home/ingestuser/.cache /docling_cache && \
     chown -R ingestuser:ingestuser /app /home/ingestuser/.cache /docling_cache
 
 # Copie de l'environnement virtuel depuis le stage builder
