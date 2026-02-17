@@ -358,3 +358,95 @@ yarn dev:frontend
 - **Stockage** : 128 Go SSD
 - **GPU** : Sans (Inférence CPU uniquement avec modèles 1B/3B quantifiés)
 - **Coût matériel estimé** : 500 € - 1 200 €
+
+---
+
+## Prototypes développés
+
+Deux composants ont été conçus et testés, destinés à couvrir les deux cas d'usage décrits ci-dessus.
+
+---
+
+### Prototype 1 : Système RAG hybride (`semantic_search/`)
+
+**Objectif** : Répondre au **Cas d'usage 1 (Entreprise)** — recherche dans un corpus de documents hétérogènes avec génération de réponses sourcées.
+
+**Architecture**
+
+```
+Documents (PDF, DOCX, XLSX, PPTX, images…)
+    └─► Docling + OCR intelligent (RapidOCR)
+            └─► Chunking hybride (512 tokens, overlap 200 car.)
+                    ├─► Meilisearch  (BM25 — recherche exacte)
+                    └─► Qdrant       (vecteurs — recherche sémantique)
+                                └─► Fusion RRF + Cross-Encoder (reranking)
+                                        └─► FastAPI → React UI
+```
+
+**Stack technique**
+
+| Composant | Technologie |
+|-----------|-------------|
+| Extraction documents | Docling 2.17+, PyMuPDF, RapidOCR |
+| Recherche plein texte | Meilisearch v1.35 (BM25) |
+| Recherche sémantique | Qdrant v1.16 + `multilingual-e5-large-instruct` |
+| Reranking | Cross-encoder `mmarco-mMiniLMv2-L12-H384-v1` |
+| Backend API | FastAPI + llama-cpp-python (LLM optionnel) |
+| Frontend | React 18 + TypeScript + Tailwind CSS |
+| Monitoring | Prometheus + Grafana |
+| Déploiement | Docker Compose |
+
+**Points clés**
+- **OCR intelligent** : activé uniquement si le PDF contient des images scannées (3-4x plus rapide que l'OCR systématique)
+- **Fusion RRF** (Reciprocal Rank Fusion) : combine les classements BM25 et vectoriel sans poids appris
+- **Tolérance aux pannes** : circuit breakers, dégradation gracieuse (si Meilisearch est indisponible, bascule en recherche vectorielle seule)
+- **LLM optionnel** : fonctionne en mode recherche pure, ou avec un LLM local (GGUF) pour la génération de réponses
+- **Tests** : couverture 100% sur la logique métier de l'ingestion
+
+---
+
+### Prototype 2 : Fine-tuning modèle expert (`learner/`)
+
+**Objectif** : Répondre au **Cas d'usage 2 (Machine industrielle)** — créer un modèle LLM spécialisé sur la documentation d'une machine spécifique (SP2322), déployable sur PC embarqué sans connexion réseau.
+
+**Pipeline**
+
+```
+182 paires Q/R sur la SP2322 (format ChatML)
+    └─► Fine-tuning LoRA sur Qwen3-1.7B (Unsloth, 4-bit NF4)
+            └─► Export LoRA adapters (~133 Mo)
+                    └─► Conversion GGUF + quantification Q4_K_M (~1,1 Go)
+                            └─► Intégration dans semantic_search via llama-cpp-python
+```
+
+**Stack technique**
+
+| Composant | Technologie |
+|-----------|-------------|
+| Modèle de base | Qwen3-1.7B |
+| Framework fine-tuning | Unsloth 2026.2+ (2x plus rapide, -30% VRAM) |
+| Méthode | LoRA (rank 32) sur les projections attention + MLP |
+| Quantification entraînement | 4-bit NF4 (bitsandbytes) |
+| Format production | GGUF Q4_K_M via llama.cpp |
+| Gestionnaire de paquets | uv |
+
+**Artefacts produits**
+- `sp2322_lora/` — adaptateurs LoRA (~133 Mo) pour reprise du fine-tuning
+- `sp2322_gguf/Sp2322_Gguf-1.7B-Q4_K_M.gguf` — modèle quantifié production (~1,1 Go)
+
+**Points clés**
+- **Entraînement sur les réponses uniquement** : les questions et messages système sont masqués (loss = -100), évitant la mémorisation de la structure Q/R
+- **Empreinte minimale** : modèle 1,7B quantifié en Q4_K_M, inférence CPU possible sur PC industriel 4 Go RAM
+- **Intégration** : le fichier GGUF peut être monté directement dans `semantic_search/` via la variable `LLM_MODEL_PATH`
+
+---
+
+### Intégration des deux prototypes
+
+Les deux composants sont complémentaires et conçus pour fonctionner ensemble :
+
+1. **Fine-tuner** le modèle expert dans `learner/` sur la documentation de la machine cible
+2. **Exporter** le modèle au format GGUF (`Q4_K_M`)
+3. **Monter** le fichier GGUF dans `semantic_search/data/models/` et configurer `LLM_MODEL_PATH`
+4. **Indexer** les documents via le pipeline d'ingestion (`docker compose run ingestor`)
+5. **Interroger** via l'interface React ou l'API REST — le système recherche dans les documents et génère des réponses avec le modèle spécialisé
