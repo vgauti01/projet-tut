@@ -27,6 +27,8 @@ graph TD
 ## ✨ Fonctionnalités Clés
 
 - **Extraction Multi-format** : Support natif du `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.csv` et `.txt`.
+- **OCR Intelligent** : Détection automatique des PDFs scannés et activation OCR uniquement si nécessaire (2-5x plus rapide).
+- **Traitement Parallélisé** : Extraction Docling multi-thread pour améliorer les performances (3-4x plus rapide).
 - **Chunking Sémantique** : Découpage intelligent qui respecte la structure des phrases pour ne pas perdre le sens.
 - **Hybrid Search** : Alimente simultanément une base vectorielle (Qdrant) et textuelle (Meilisearch).
 - **Performance** : Utilise `uv` pour une gestion ultra-rapide des dépendances et de l'exécution.
