@@ -113,8 +113,8 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # Monte les modèles (LLM + Hugging Face)
-      - ./data/models:/app/models
+      # Volume nommé partagé pour les modèles (LLM + Hugging Face) — persiste entre les recreations de conteneur
+      - models:/app/models
       # Monte les logs de l'API dans un volume persistant pour faciliter le débogage et la surveillance, tout en évitant d'écrire directement sur le disque de l'hôte.
       - api_logs:/app/logs
       # Monte le code source en lecture/écriture pour permettre les modifications en temps réel
@@ -154,12 +154,15 @@ services:
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-200}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
-      - HF_CACHE_DIR=/workdir/data/models
+      - HF_CACHE_DIR=/app/models
       - HF_HOME=/docling_cache
     volumes:
       # Monte le code source de l'ingestor pour faciliter les modifications
       - ./:/workdir:rw
-      - ./data/docling_models:/docling_cache:rw
+      # Volume nommé partagé avec l'API pour les modèles Hugging Face
+      - models:/app/models
+      # Volume nommé pour les modèles Docling (séparé des modèles HF)
+      - docling_models:/docling_cache
     depends_on:
       # L'ingestor doit attendre que l'API soit opérationnelle, car il dépend de la disponibilité de Meilisearch et Qdrant pour indexer les documents.
       meilisearch:
@@ -346,4 +349,8 @@ volumes:
   grafana_data:
     driver: local
   api_logs:
+    driver: local
+  models:
+    driver: local
+  docling_models:
     driver: local
