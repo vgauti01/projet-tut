@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 
 from .settings import MEILI_MASTER_KEY, DOCS_DIR
-from .extractors import supported_extensions
 from .services import (
     get_embedding_service,
     ensure_meili_index,
@@ -52,15 +51,12 @@ def ingest():
     logger.info("=" * 60)
 
     docs_dir = Path(DOCS_DIR)
-    exts = supported_extensions()
 
-    # Collecte tous les fichiers supportés
-    files = []
-    for ext in exts:
-        files.extend(docs_dir.glob(f"**/*{ext}"))
+    # Collecte tous les fichiers de manière récursive
+    files = [f for f in docs_dir.rglob("*") if f.is_file()]
 
     if not files:
-        logger.warning(f"Aucun document trouvé dans {docs_dir.resolve()} (formats supportés: {', '.join(exts)})")
+        logger.warning(f"Aucun document trouvé dans {docs_dir.resolve()}")
         return
 
     logger.info(f"Documents trouvés: {len(files)}")
