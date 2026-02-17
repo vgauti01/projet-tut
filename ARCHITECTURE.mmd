@@ -1,0 +1,66 @@
+flowchart TD
+    %% --- STYLES ---
+    classDef user fill:#fff3e0,stroke:#ff9800,stroke-width:2px,rx:8,ry:8,color:#ef6c00;
+    classDef frontend fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,rx:8,ry:8,color:#0d47a1;
+    classDef api fill:#e1f5fe,stroke:#039be5,stroke-width:2px,rx:8,ry:8,color:#01579b;
+    classDef search fill:#e8f5e9,stroke:#43a047,stroke-width:2px,rx:8,ry:8,color:#1b5e20;
+    classDef db fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
+    classDef ai fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:8,ry:8,color:#4a148c;
+    classDef ingest fill:#fff8e1,stroke:#f9a825,stroke-width:2px,rx:8,ry:8,color:#f57f17;
+    classDef monitor fill:#fce4ec,stroke:#ad1457,stroke-width:1px,rx:5,ry:5,color:#880e4f;
+    classDef docs fill:#efebe9,stroke:#795548,stroke-width:2px,rx:5,ry:5,color:#4e342e;
+
+    %% --- UTILISATEUR ---
+    User(fa:fa-user Utilisateur):::user
+
+    %% --- FRONTEND ---
+    User <-->|":5173"| Frontend["fa:fa-globe Frontend<br/><i>React 18 · TypeScript · Tailwind</i><br/><i>Nginx</i>"]:::frontend
+
+    %% --- API ---
+    Frontend <-->|":8000<br/>REST + SSE"| API["fa:fa-server API<br/><i>FastAPI · uvicorn</i>"]:::api
+
+    %% --- MODÈLES IA (utilisés par l'API) ---
+    API --- Models
+
+    subgraph Models [" fa:fa-brain Modèles IA "]
+        direction LR
+        EmbedModel["fa:fa-project-diagram Embedding<br/><i>multilingual-e5-large</i>"]:::ai
+        RerankModel["fa:fa-sort-amount-up Reranking<br/><i>mmarco-mMiniLM</i>"]:::ai
+        LLM["fa:fa-robot LLM<br/><i>llama-cpp · optionnel</i>"]:::ai
+    end
+
+    %% --- MOTEURS DE RECHERCHE ---
+    API <-->|"BM25<br/>:7700"| Meili[("fa:fa-search Meilisearch<br/><i>Full-Text</i>")]:::db
+    API <-->|"Vecteurs<br/>:6333"| Qdrant[("fa:fa-rocket Qdrant<br/><i>Semantic</i>")]:::db
+
+    %% --- PIPELINE D'INGESTION ---
+    Documents["fa:fa-folder-open Documents Sources<br/><i>PDF, DOCX, PPTX, XLSX,<br/>HTML, CSV, Images, TXT</i>"]:::docs
+
+    Documents --> Ingestor["fa:fa-cogs Ingestor<br/><i>Docling · OCR · Chunking</i>"]:::ingest
+    Ingestor -->|"indexation"| Meili
+    Ingestor -->|"indexation"| Qdrant
+
+    %% --- MONITORING ---
+    subgraph Monitoring ["fa:fa-chart-line Monitoring <i>(optionnel)</i>"]
+        direction LR
+        Prometheus["fa:fa-database Prometheus<br/><i>:9090</i>"]:::monitor
+        Grafana["fa:fa-tachometer-alt Grafana<br/><i>:3000</i>"]:::monitor
+        NodeExp["fa:fa-microchip Node Exporter"]:::monitor
+        cAdvisor["fa:fa-docker cAdvisor"]:::monitor
+    end
+
+    API -.->|"métriques"| Prometheus
+    Prometheus --> Grafana
+    NodeExp -.-> Prometheus
+    cAdvisor -.-> Prometheus
+
+    %% --- RÉSEAUX ---
+    subgraph legend [" "]
+        direction LR
+        N1["fa:fa-globe Réseau frontend"]:::frontend
+        N2["fa:fa-lock Réseau backend"]:::api
+    end
+
+    style Models fill:#faf5ff,stroke:#8e24aa,stroke-width:1px,stroke-dasharray: 4 4
+    style Monitoring fill:#fff0f3,stroke:#ad1457,stroke-width:1px,stroke-dasharray: 4 4
+    style legend fill:#fafafa,stroke:#bbb,stroke-width:1px

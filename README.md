@@ -369,14 +369,14 @@ Deux composants ont été conçus et testés, destinés à couvrir les deux cas 
 
 ### Prototype 1 : Système RAG hybride (`semantic_search/`)
 
-**Objectif** : Répondre au **Cas d'usage 1 (Entreprise)** — recherche dans un corpus de documents hétérogènes avec génération de réponses sourcées.
+**Objectif** : Répondre au **Cas d'usage 2** — créer un système de recherche intelligente pour une machine industrielle, capable de fonctionner sur un PC embarqué avec une volumétrie de quelques dizaines à quelques centaines de documents.
 
 **Architecture**
 
 ```
 Documents (PDF, DOCX, XLSX, PPTX, images…)
-    └─► Docling + OCR intelligent (RapidOCR)
-            └─► Chunking hybride (512 tokens, overlap 200 car.)
+    └─► Docling + OCR intelligent
+            └─► Chunking hybride
                     ├─► Meilisearch  (BM25 — recherche exacte)
                     └─► Qdrant       (vecteurs — recherche sémantique)
                                 └─► Fusion RRF + Cross-Encoder (reranking)
@@ -387,7 +387,7 @@ Documents (PDF, DOCX, XLSX, PPTX, images…)
 
 | Composant | Technologie |
 |-----------|-------------|
-| Extraction documents | Docling 2.17+, PyMuPDF, RapidOCR |
+| Extraction documents | Docling 2.17+ |
 | Recherche plein texte | Meilisearch v1.35 (BM25) |
 | Recherche sémantique | Qdrant v1.16 + `multilingual-e5-large-instruct` |
 | Reranking | Cross-encoder `mmarco-mMiniLMv2-L12-H384-v1` |
@@ -407,10 +407,9 @@ Documents (PDF, DOCX, XLSX, PPTX, images…)
 
 ### Prototype 2 : Fine-tuning modèle expert (`learner/`)
 
-**Objectif** : Répondre au **Cas d'usage 2 (Machine industrielle)** — créer un modèle LLM spécialisé sur la documentation d'une machine spécifique (SP2322), déployable sur PC embarqué sans connexion réseau.
+**Objectif** : En complement du prototype RAG, entraîner un modèle de langage spécialisé sur les réponses issues de la documentation technique d'une machine industrielle (SP2322), afin d'améliorer la pertinence des réponses générées.
 
 **Pipeline**
-
 ```
 182 paires Q/R sur la SP2322 (format ChatML)
     └─► Fine-tuning LoRA sur Qwen3-1.7B (Unsloth, 4-bit NF4)
@@ -435,8 +434,8 @@ Documents (PDF, DOCX, XLSX, PPTX, images…)
 - `sp2322_gguf/Sp2322_Gguf-1.7B-Q4_K_M.gguf` — modèle quantifié production (~1,1 Go)
 
 **Points clés**
-- **Entraînement sur les réponses uniquement** : les questions et messages système sont masqués (loss = -100), évitant la mémorisation de la structure Q/R
-- **Empreinte minimale** : modèle 1,7B quantifié en Q4_K_M, inférence CPU possible sur PC industriel 4 Go RAM
+- **Entraînement sur les réponses uniquement** : les questions et messages système sont masqués, évitant la mémorisation de la structure Q/R
+- **Empreinte minimale** : modèle 1,7B quantifié en Q4_K_M, inférence CPU possible sur PC industriel
 - **Intégration** : le fichier GGUF peut être monté directement dans `semantic_search/` via la variable `LLM_MODEL_PATH`
 
 ---
@@ -450,3 +449,20 @@ Les deux composants sont complémentaires et conçus pour fonctionner ensemble :
 3. **Monter** le fichier GGUF dans `semantic_search/data/models/` et configurer `LLM_MODEL_PATH`
 4. **Indexer** les documents via le pipeline d'ingestion (`docker compose run ingestor`)
 5. **Interroger** via l'interface React ou l'API REST — le système recherche dans les documents et génère des réponses avec le modèle spécialisé
+
+## Limites et perspectives d'amélioration
+
+
+### Limites actuelles
+
+- **Données d'entraînement** : Le fine-tuning a été réalisé sur un dataset de 182 paires Q/R, ce qui est relativement limité. L'ajout de données supplémentaires réellement issues des experts métiers/des utilisateurs pourrait améliorer la pertinence du modèle.
+- **Performance** : Le système, avec LLM, peut nécessiter jusqu'à 30 secondes avant de générer une réponse sur un PC classique (i7-9850H, 16 Go RAM) avec le modèle quantifié. Sans LLM, les réponses demandent entre 2 et 5 secondes.
+- **Ingestion** : L'ingestion est performante mais a demandé 1h30 pour indexer ~500 fichiers HTML. 
+
+
+### Perspectives d'amélioration
+
+- **Connecteurs d'entreprise** : L'intégration native avec SharePoint on-premise et Outlook n'est pas encore implémentée. Un développement custom ou l'utilisation d'outils tiers (rclone, scripts PowerShell) est nécessaire pour synchroniser les documents vers un dossier local.
+- **Interface utilisateur** : L'interface React est fonctionnelle mais peut être améliorée pour une meilleure expérience utilisateur (ex : pagination des résultats, filtres avancés, etc.).
+- **Gestion des permissions** : Actuellement, tous les utilisateurs ont accès à tous les documents. L'ajout d'une gestion des droits d'accès basée sur les groupes AD/LDAP serait un plus pour le cas d'usage entreprise.
+- **Monitoring et alerting** : Bien que Prometheus et Grafana soient intégrés, des dashboards spécifiques et des alertes sur les performances et les erreurs pourraient être développés pour faciliter la maintenance.

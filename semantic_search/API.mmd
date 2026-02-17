@@ -1,0 +1,144 @@
+flowchart TD
+    %% --- DÉFINITION DES STYLES ---
+    classDef default fill:#fff,stroke:#333,stroke-width:1px;
+    classDef input fill:#fff3e0,stroke:#ff9800,stroke-width:2px,rx:5,ry:5,color:#ef6c00;
+    classDef process fill:#e1f5fe,stroke:#039be5,stroke-width:2px,rx:5,ry:5,color:#01579b;
+    classDef ai fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:5,ry:5,color:#4a148c;
+    classDef decision fill:#fff,stroke:#ff6f00,stroke-width:2px,shape:diamond;
+    classDef storage fill:#e8f5e9,stroke:#43a047,stroke-width:2px,shape:cylinder,color:#1b5e20;
+    classDef output fill:#e8eaf6,stroke:#3949ab,stroke-width:3px,rx:10,ry:10,color:#1a237e;
+    classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+    classDef metric fill:#fce4ec,stroke:#ad1457,stroke-width:1px,rx:3,ry:3,color:#880e4f;
+
+    %% --- BLOC 1 : RÉCEPTION & VALIDATION ---
+    subgraph Reception [<b>🌐 PHASE 1 : RÉCEPTION & VALIDATION</b>]
+        direction TB
+
+        User(fa:fa-user Requête Utilisateur):::input --> Endpoint{Type endpoint ?}:::decision
+
+        Endpoint -- "POST /ask" --> AskReq["fa:fa-question AskRequest<br/><i>query + limit?</i>"]:::process
+        Endpoint -- "POST /chat" --> ChatReq["fa:fa-comments ChatRequest<br/><i>query + conversation_id?</i>"]:::process
+
+        AskReq --> Validate["fa:fa-check-circle Validation<br/><i>1–1000 chars, strip</i>"]:::process
+        ChatReq --> Session{conversation_id<br/>fourni ?}:::decision
+
+        Session -- Oui --> LoadSession["fa:fa-history Charger Session<br/><i>messages existants</i>"]:::process
+        Session -- Non --> NewSession["fa:fa-plus Nouvelle Session<br/><i>UUID + historique vide</i>"]:::process
+        LoadSession --> AddMsg["fa:fa-comment-dots Ajouter message<br/><i>rôle: user</i>"]:::process
+        NewSession --> AddMsg
+        AddMsg --> Validate
+
+        Validate --> HybridSearch
+    end
+
+    %% --- BLOC 2 : RECHERCHE HYBRIDE ---
+    subgraph HybridSearch [<b>🔍 PHASE 2 : RECHERCHE HYBRIDE</b>]
+        direction TB
+
+        SearchStart(fa:fa-search perform_hybrid_search):::process --> Parallel["fa:fa-code-branch asyncio.gather<br/><i>exécution parallèle</i>"]:::process
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE MEILISEARCH (BM25)
+        %% ══════════════════════════════════════════
+        Parallel --> MeiliCB{fa:fa-shield-alt Circuit<br/>Breaker<br/>Meili}:::decision
+        MeiliCB -- Fermé --> MeiliNorm["fa:fa-eraser normalize_query<br/><i>suppression stopwords FR</i>"]:::process
+        MeiliNorm --> MeiliQuery["fa:fa-search Meilisearch<br/><i>BM25 Full-Text</i>"]:::process
+        MeiliQuery --> MeiliIdx[(fa:fa-database Index Meili)]:::storage
+        MeiliIdx --> MeiliHits["fa:fa-list TOP_K × 3<br/><i>résultats BM25</i>"]:::process
+        MeiliCB -- Ouvert --> MeiliSkip["fa:fa-forward Skip<br/><i>dégradation gracieuse</i>"]:::error
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE QDRANT (Vecteur)
+        %% ══════════════════════════════════════════
+        Parallel --> QdrantCB{fa:fa-shield-alt Circuit<br/>Breaker<br/>Qdrant}:::decision
+        QdrantCB -- Fermé --> Embed["fa:fa-brain Embedding<br/><i>SentenceTransformer</i>"]:::ai
+        Embed --> QdrantQuery["fa:fa-rocket Qdrant<br/><i>Semantic Search</i>"]:::process
+        QdrantQuery --> QdrantColl[(fa:fa-database Collection Qdrant)]:::storage
+        QdrantColl --> QdrantHits["fa:fa-list TOP_K × 3<br/><i>résultats vectoriels</i>"]:::process
+        QdrantCB -- Ouvert --> QdrantSkip["fa:fa-forward Skip<br/><i>dégradation gracieuse</i>"]:::error
+
+        %% ══════════════════════════════════════════
+        %% FUSION & RERANKING
+        %% ══════════════════════════════════════════
+        MeiliHits & QdrantHits --> RRF["fa:fa-compress-arrows-alt RRF Fusion<br/><i>1 / (k + rank)</i>"]:::process
+        MeiliSkip --> Mode
+        QdrantSkip --> Mode
+        RRF --> Rerank["fa:fa-sort-amount-up CrossEncoder Reranking<br/><i>score sigmoid → filtre MIN_SCORE</i>"]:::ai
+        Rerank --> TopK["fa:fa-trophy TOP_K Résultats<br/><i>triés par pertinence</i>"]:::process
+
+        TopK --> Mode{Search Mode ?}:::decision
+        Mode -- "hybrid /<br/>meili_only /<br/>qdrant_only" --> SearchOut
+        Mode -- failed --> Error503["fa:fa-exclamation-triangle HTTP 503<br/><i>services indisponibles</i>"]:::error
+
+        SearchOut(["fa:fa-check-double Résultats + Timings<br/><i>mode de recherche</i>"]):::output
+    end
+
+    %% --- BLOC 3 : RÉPONSE ---
+    subgraph Response [<b>💬 PHASE 3 : GÉNÉRATION DE RÉPONSE</b>]
+        direction TB
+
+        SearchOut --> RouteEndpoint{Endpoint ?}:::decision
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE /ask
+        %% ══════════════════════════════════════════
+        RouteEndpoint -- "/ask" --> ExtractTerms["fa:fa-highlighter extract_terms<br/><i>termes significatifs</i>"]:::process
+        ExtractTerms --> FormatAsk["fa:fa-align-left format_answer<br/><i>highlight + structure</i>"]:::process
+        FormatAsk --> AskLog["fa:fa-file-alt Log requests.log"]:::process
+        AskLog --> AskJSON(["fa:fa-reply JSON Response<br/><i>answer, excerpts, sources,<br/>total_results, search_mode, timings</i>"]):::output
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE /chat
+        %% ══════════════════════════════════════════
+        RouteEndpoint -- "/chat" --> LLMCheck{LLM<br/>disponible ?}:::decision
+
+        LLMCheck -- Non --> ChatFallback["fa:fa-life-ring Fallback<br/><i>format_answer sans génération</i>"]:::error
+        ChatFallback --> ChatOut
+
+        LLMCheck -- Oui --> BuildPrompt["fa:fa-cogs build_rag_prompt<br/><i>system + historique + chunks</i>"]:::process
+        BuildPrompt --> PromptParts["fa:fa-layer-group Construction Prompt"]:::process
+
+        PromptParts --> SysPrompt["fa:fa-scroll System Prompt<br/><i>instructions FR</i>"]:::process
+        PromptParts --> History["fa:fa-history Historique récent<br/><i>max LLM_MAX_HISTORY paires</i>"]:::process
+        PromptParts --> Chunks["fa:fa-file-alt Chunks contextuels<br/><i>titre, page, section, score</i>"]:::process
+
+        SysPrompt & History & Chunks --> Generate["fa:fa-robot LLM generate_stream<br/><i>llama-cpp-python</i>"]:::ai
+
+        Generate --> SSE["fa:fa-stream SSE Streaming"]:::process
+        SSE --> EvtMeta["fa:fa-info meta<br/><i>conversation_id</i>"]:::process
+        SSE --> EvtSources["fa:fa-book sources<br/><i>métadonnées docs</i>"]:::process
+        SSE --> EvtTimings["fa:fa-clock timings<br/><i>durées recherche</i>"]:::process
+        SSE --> EvtTokens["fa:fa-font token<br/><i>génération incrémentale</i>"]:::process
+        SSE --> EvtDone["fa:fa-flag done<br/><i>réponse complète + stats</i>"]:::process
+
+        EvtMeta & EvtSources & EvtTimings & EvtTokens & EvtDone --> SaveSession["fa:fa-save Sauvegarder Session<br/><i>ajout réponse assistant</i>"]:::process
+        SaveSession --> ChatOut(["fa:fa-reply StreamingResponse<br/><i>text/event-stream</i>"]):::output
+    end
+
+    %% --- BLOC 4 : RÉSILIENCE & OBSERVABILITÉ ---
+    subgraph Observability [<b>📊 PHASE 4 : RÉSILIENCE & OBSERVABILITÉ</b>]
+        direction TB
+
+        CB_State["fa:fa-traffic-light Circuit Breaker<br/><i>CLOSED → OPEN → HALF_OPEN</i>"]:::process
+        CB_Config["fa:fa-sliders-h Config<br/><i>seuil: 5 échecs, recovery: 60s</i>"]:::process
+        CB_State --> CB_Config
+
+        Retry["fa:fa-redo Retry Logic<br/><i>max: 2, backoff: ×2, delay: 0.5s</i>"]:::process
+
+        Metrics_Req["fa:fa-chart-bar api_requests_total<br/><i>par endpoint / statut</i>"]:::metric
+        Metrics_Search["fa:fa-chart-line search_duration_seconds<br/><i>par étape: meili, qdrant, rrf, rerank</i>"]:::metric
+        Metrics_LLM["fa:fa-chart-area llm_generation_duration<br/><i>TTFT + total + tokens</i>"]:::metric
+        Metrics_CB["fa:fa-heartbeat circuit_breaker_state<br/><i>0:closed, 1:open, 2:half_open</i>"]:::metric
+        Metrics_Health["fa:fa-stethoscope dependency_up<br/><i>Meili, Qdrant, LLM</i>"]:::metric
+
+        HealthEndpoints["fa:fa-medkit Health Endpoints"]:::process
+        HealthEndpoints --> HealthLive["fa:fa-heart /health/live<br/><i>liveness probe</i>"]:::process
+        HealthEndpoints --> HealthReady["fa:fa-thumbs-up /health/ready<br/><i>readiness probe</i>"]:::process
+        HealthEndpoints --> HealthDeep["fa:fa-microscope /health/deep<br/><i>diagnostic complet</i>"]:::process
+    end
+
+    %% Styles Subgraphs
+    style Reception fill:#f8fcff,stroke:#0277bd,stroke-width:2px,stroke-dasharray: 5 5
+    style HybridSearch fill:#fff8e1,stroke:#ff6f00,stroke-width:2px,stroke-dasharray: 5 5
+    style Response fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,stroke-dasharray: 5 5
+    style Observability fill:#f1f8e9,stroke:#558b2f,stroke-width:2px,stroke-dasharray: 5 5
