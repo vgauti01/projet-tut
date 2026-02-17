@@ -2,7 +2,7 @@
 
 Pipeline de fine-tuning pour creer un modele de langage expert sur l'encaisseuse **SP2322** (Club Industries). Utilise Unsloth pour un entrainement optimise de Qwen3-1.7B sur un jeu de donnees technique de questions/reponses, produisant un modele GGUF deployable dans le systeme RAG.
 
-## Concepts Théoriques Avancés
+## Concepts Théoriques
 
 ### 1. LLM & Architecture Transformer
 Un **LLM (Large Language Model)** est un réseau de neurones profonds basé sur l'architecture **Transformer**. Sa fonction primaire est la modélisation du langage par le calcul de la probabilité conditionnelle du prochain token : $P(x_{t} | x_{1}, ..., x_{t-1})$.
