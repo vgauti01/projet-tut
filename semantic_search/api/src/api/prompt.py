@@ -50,8 +50,11 @@ def build_rag_prompt(
         source_type = doc.get("source_type", "")
         content = doc.get("content", "")
         score_pct = round(score * 100, 1)
+        headings = doc.get("headings", [])
+        heading_str = " > ".join(headings) if headings else ""
+        location = f"page {page}" if not heading_str else f"section: {heading_str}"
         context_parts.append(
-            f"[Extrait {i}] (source: {title}, page {page}, type: {source_type}, pertinence: {score_pct}%)\n{content}"
+            f"[Extrait {i}] (source: {title}, {location}, type: {source_type}, pertinence: {score_pct}%)\n{content}"
         )
 
     context_block = "\n\n---\n\n".join(context_parts)

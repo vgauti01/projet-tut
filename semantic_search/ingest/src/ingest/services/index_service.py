@@ -72,8 +72,8 @@ def ensure_meili_index():
             headers=headers,
             json={
                 "searchableAttributes": ["content", "title", "path"],
-                "filterableAttributes": ["title", "path", "page", "source_type"],
-                "displayedAttributes": ["content", "title", "path", "page", "chunk_id", "source_type"],
+                "filterableAttributes": ["title", "path", "page", "source_type", "headings"],
+                "displayedAttributes": ["content", "title", "path", "page", "chunk_id", "source_type", "headings"],
                 "stopWords": FRENCH_STOP_WORDS
             },
             timeout=10

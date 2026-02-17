@@ -54,9 +54,10 @@ class HtmlExtractor(Extractor):
 
             logger.info(f"Extraction HTML avec Docling: {file_path.name}")
             result = converter.convert(str(file_path))
+            doc = result.document
 
             # Extraction du document complet en markdown
-            full_markdown = result.document.export_to_markdown()
+            full_markdown = doc.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path} avec Docling")
@@ -69,6 +70,7 @@ class HtmlExtractor(Extractor):
                     "source_type": "html",
                     "extraction_method": "docling",
                 },
+                docling_document=doc,
             )
 
         except Exception as e:

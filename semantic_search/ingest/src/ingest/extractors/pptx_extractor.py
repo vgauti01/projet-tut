@@ -52,36 +52,23 @@ class PptxExtractor(Extractor):
             converter = self._get_converter()
 
             result = converter.convert(str(file_path))
-            full_markdown = result.document.export_to_markdown()
+            doc = result.document
+            full_markdown = doc.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path}")
                 return
 
-            # Tente de splitter par marqueurs de slide (--- ou # headers)
-            slides = self._split_slides_from_markdown(full_markdown)
-
-            if slides:
-                for idx, slide_text in enumerate(slides, start=1):
-                    yield ExtractedPage(
-                        page_number=idx,
-                        text=slide_text,
-                        metadata={
-                            "source_type": "pptx",
-                            "extraction_method": "docling",
-                        },
-                    )
-            else:
-                yield ExtractedPage(
-                    page_number=1,
-                    text=full_markdown,
-                    title=file_path.stem.replace("_", " "),
-                    metadata={
-                        "source_type": "pptx",
-                        "extraction_method": "docling",
-                        "page_count": 1
-                    },
-                )
+            # Le HybridChunker gère la structure des slides, pas besoin de split manuel
+            yield ExtractedPage(
+                page_number=1,
+                text=full_markdown,
+                metadata={
+                    "source_type": "pptx",
+                    "extraction_method": "docling",
+                },
+                docling_document=doc,
+            )
 
         except Exception as e:
             logger.error(f"Impossible d'extraire le fichier PPTX {file_path} avec Docling: {e}")

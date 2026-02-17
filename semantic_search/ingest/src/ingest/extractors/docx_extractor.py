@@ -52,9 +52,10 @@ class DocxExtractor(Extractor):
 
             # Conversion du document avec Docling
             result = converter.convert(str(file_path))
+            doc = result.document
 
             # Extraction du texte complet avec structure préservée
-            full_markdown = result.document.export_to_markdown()
+            full_markdown = doc.export_to_markdown()
 
             if not full_markdown or not full_markdown.strip():
                 logger.warning(f"Aucun contenu extrait de {file_path}")
@@ -67,6 +68,7 @@ class DocxExtractor(Extractor):
                     "source_type": "docx",
                     "extraction_method": "docling",
                 },
+                docling_document=doc,
             )
 
         except Exception as e:

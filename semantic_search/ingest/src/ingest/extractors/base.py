@@ -14,6 +14,8 @@ class ExtractedPage:
     # Métadonnées supplémentaires (ex: type de source, langue, etc.)
     # field(default_factory=dict) permet d'initialiser metadata à un dictionnaire vide par défaut
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Document Docling original pour le HybridChunker (None si extraction fallback)
+    docling_document: Any = field(default=None, repr=False)
 
 
 class Extractor(ABC):

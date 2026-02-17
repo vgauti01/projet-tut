@@ -23,6 +23,19 @@ class TestExtractedPage:
         page = ExtractedPage(page_number=1, text="hello")
         assert page.metadata == {}
 
+    def test_docling_document_default_none(self):
+        page = ExtractedPage(page_number=1, text="hello")
+        assert page.docling_document is None
+
+    def test_docling_document_set(self):
+        fake_doc = {"type": "docling"}
+        page = ExtractedPage(page_number=1, text="hello", docling_document=fake_doc)
+        assert page.docling_document == {"type": "docling"}
+
+    def test_docling_document_not_in_repr(self):
+        page = ExtractedPage(page_number=1, text="hello", docling_document="large_object")
+        assert "large_object" not in repr(page)
+
 
 class TestTxtExtractor:
     def test_can_handle(self):
