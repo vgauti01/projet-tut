@@ -3,38 +3,43 @@
 import re
 import hashlib
 import logging
+import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterator, List, Dict, Any
 from tqdm import tqdm
+from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from .settings import CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS, EMBED_MODEL, MEILI_URL, INDEX_NAME, QDRANT_URL
+from .settings import CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS, EMBED_MODEL, MEILI_URL, INDEX_NAME, QDRANT_URL, N_EXTRACTION_WORKERS
 from .text_utils import chunk_text, clean_pdf_artifacts
 from .extractors import get_extractor
 from .services.embedding_service import EmbeddingService
-from .services.index_service import get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
-# Singleton lazy pour le HybridChunker
+# Singleton lazy pour le HybridChunker (thread-safe)
 _hybrid_chunker = None
+_hybrid_chunker_lock = threading.Lock()
 
 
 def _get_hybrid_chunker():
     """Retourne un singleton HybridChunker configuré avec le tokenizer du modèle d'embedding."""
     global _hybrid_chunker
     if _hybrid_chunker is None:
-        from docling.chunking import HybridChunker
-        from transformers import AutoTokenizer
+        with _hybrid_chunker_lock:
+            if _hybrid_chunker is None:  # double-checked locking
+                from docling.chunking import HybridChunker
+                from transformers import AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL)
-        _hybrid_chunker = HybridChunker(
-            tokenizer=tokenizer,
-            max_tokens=CHUNK_MAX_TOKENS,
-            merge_peers=True,
-        )
-        logger.info(f"HybridChunker initialisé (max_tokens={CHUNK_MAX_TOKENS}, modèle={EMBED_MODEL})")
+                tokenizer = AutoTokenizer.from_pretrained(EMBED_MODEL)
+                _hybrid_chunker = HybridChunker(
+                    tokenizer=tokenizer,
+                    max_tokens=CHUNK_MAX_TOKENS,
+                    merge_peers=True,
+                )
+                logger.info(f"HybridChunker initialisé (max_tokens={CHUNK_MAX_TOKENS}, modèle={EMBED_MODEL})")
     return _hybrid_chunker
 
 
@@ -116,10 +121,62 @@ def _fallback_chunk_text(
         }
 
 
+def _extract_file_chunks(file_path: Path, docs_dir: Path) -> List[Dict[str, Any]]:
+    """
+    Extrait et chunke un seul fichier. Retourne une liste (pas un générateur)
+    pour être compatible avec ThreadPoolExecutor.
+    """
+    extractor = get_extractor(file_path)
+    if extractor is None:
+        logger.warning(f"Pas d'extracteur pour {file_path}")
+        return []
+
+    title = file_path.stem
+    chunks: List[Dict[str, Any]] = []
+
+    try:
+        for page in extractor.extract(file_path):
+            if not page.text.strip():
+                continue
+
+            source_type = page.metadata.get("source_type", "unknown")
+
+            if page.docling_document is not None:
+                chunks.extend(_chunk_with_hybrid_chunker(
+                    page.docling_document, title, file_path, source_type
+                ))
+            else:
+                extraction_method = page.metadata.get("extraction_method", "")
+                cleaned_text = clean_pdf_artifacts(page.text) if extraction_method.endswith("_fallback") else page.text
+
+                if not cleaned_text.strip():
+                    continue
+
+                clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
+                path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
+
+                for idx, chunk in enumerate(chunk_text(cleaned_text, CHUNK_SIZE, CHUNK_OVERLAP)):
+                    chunks.append({
+                        "id": f"{clean_filename}_{path_hash}_{page.page_number}_{idx}",
+                        "title": title,
+                        "path": str(file_path),
+                        "page": page.page_number,
+                        "chunk_id": idx,
+                        "content": chunk,
+                        "source_type": source_type,
+                        "headings": [],
+                    })
+
+    except Exception as e:
+        logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
+
+    return chunks
+
+
 def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, Any]]:
     """
-    Générateur qui extrait et chunke les documents un par un.
-    Évite de charger tous les documents en mémoire en utilisant un yield.
+    Générateur qui extrait et chunke les documents en parallèle.
+    Utilise N_EXTRACTION_WORKERS threads pour traiter plusieurs fichiers simultanément.
 
     Args:
         files: Liste des fichiers à traiter
@@ -128,85 +185,71 @@ def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, A
     Yields:
         Dictionnaire contenant les métadonnées et le contenu d'un chunk
     """
-    for file_path in tqdm(files, desc="Extraction", unit="fichier"):
-        extractor = get_extractor(file_path)
-        if extractor is None:
-            logger.warning(f"Pas d'extracteur pour {file_path}")
-            continue
+    logger.info(f"Extraction avec {N_EXTRACTION_WORKERS} workers parallèles")
 
-        title = file_path.stem
+    with ThreadPoolExecutor(max_workers=N_EXTRACTION_WORKERS) as executor:
+        futures = {
+            executor.submit(_extract_file_chunks, f, docs_dir): f
+            for f in files
+        }
 
-        try:
-            for page in extractor.extract(file_path):
-                # Vérifie que la page contient du texte non vide
-                if not page.text.strip():
-                    continue
+        with tqdm(total=len(files), desc="Extraction", unit="fichier") as pbar:
+            for future in as_completed(futures):
+                file_path = futures[future]
+                try:
+                    yield from future.result()
+                except Exception as e:
+                    logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
+                finally:
+                    pbar.update(1)
 
-                source_type = page.metadata.get("source_type", "unknown")
 
-                # Chemin HybridChunker : si le DoclingDocument est disponible
-                if page.docling_document is not None:
-                    yield from _chunk_with_hybrid_chunker(
-                        page.docling_document, title, file_path, source_type
-                    )
-                else:
-                    # Chemin fallback : clean + chunk_text()
-                    extraction_method = page.metadata.get("extraction_method", "")
-                    if extraction_method.endswith("_fallback"):
-                        cleaned_text = clean_pdf_artifacts(page.text)
-                    else:
-                        cleaned_text = page.text
+def _index_meili(batch_docs: List[Dict[str, Any]], meili_headers: Dict[str, str]) -> int:
+    """Indexe un batch dans Meilisearch. Retourne le nombre de docs indexés."""
+    r = requests.post(
+        f"{MEILI_URL}/indexes/{INDEX_NAME}/documents",
+        headers=meili_headers,
+        json=batch_docs,
+        timeout=30,
+    )
+    r.raise_for_status()
+    return len(batch_docs)
 
-                    if not cleaned_text.strip():
-                        continue
 
-                    # Parcourt les chunks de texte extraits de la page
-                    for idx, chunk in enumerate(chunk_text(cleaned_text, CHUNK_SIZE, CHUNK_OVERLAP)):
-                        # Génère un ID unique et stable basé sur hash pour éviter les collisions
-                        clean_filename = re.sub(r'[^a-zA-Z0-9-_]', '_', file_path.name)
-                        # Ajout du hash du chemin complet pour garantir l'unicité
-                        path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
-                        doc_id = f"{clean_filename}_{path_hash}_{page.page_number}_{idx}"
-
-                        yield {
-                            "id": doc_id,
-                            "title": title,
-                            "path": str(file_path),
-                            "page": page.page_number,
-                            "chunk_id": idx,
-                            "content": chunk,
-                            "source_type": source_type,
-                            "headings": [],
-                        }
-
-        except Exception as e:
-            logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
-            continue
+def _index_qdrant(batch_docs: List[Dict[str, Any]], embeddings, qdrant_client: QdrantClient) -> int:
+    """Indexe un batch dans Qdrant. Retourne le nombre de points indexés."""
+    points = [
+        models.PointStruct(
+            id=int(hashlib.md5(doc["id"].encode()).hexdigest()[:16], 16),
+            vector=embeddings[i].tolist(),
+            payload=doc,
+        )
+        for i, doc in enumerate(batch_docs)
+    ]
+    qdrant_client.upsert(collection_name=INDEX_NAME, points=points)
+    return len(points)
 
 
 def process_batch(
     batch_docs: List[Dict[str, Any]],
     embedding_service: EmbeddingService,
-    meili_headers: Dict[str, str]
+    meili_headers: Dict[str, str],
+    qdrant_client: QdrantClient,
 ) -> tuple[int, int, int, int]:
     """
-    Traite un batch de documents : génération embeddings + indexation.
+    Traite un batch de documents : génération embeddings + indexation parallèle.
 
     Args:
         batch_docs: Liste des documents du batch
         embedding_service: Service pour générer les embeddings
         meili_headers: Headers pour Meilisearch
+        qdrant_client: Client Qdrant persistant (réutilisé entre batches)
 
     Returns:
         Tuple (meili_success, meili_failed, qdrant_success, qdrant_failed)
     """
     if not batch_docs:
         return 0, 0, 0, 0
-
-    meili_success = 0
-    meili_failed = 0
-    qdrant_success = 0
-    qdrant_failed = 0
 
     # Génération des embeddings pour le batch (encoding asymétrique document)
     try:
@@ -216,41 +259,23 @@ def process_batch(
         logger.error(f"Erreur génération embeddings pour batch: {e}", exc_info=True)
         return 0, len(batch_docs), 0, len(batch_docs)
 
-    # Indexation Meilisearch
-    try:
-        r = requests.post(
-            f"{MEILI_URL}/indexes/{INDEX_NAME}/documents",
-            headers=meili_headers,
-            json=batch_docs,
-            timeout=30
-        )
-        r.raise_for_status()
-        meili_success = len(batch_docs)
-    except requests.RequestException as e:
-        meili_failed = len(batch_docs)
-        logger.error(f"Erreur indexation Meilisearch: {e}")
+    # Indexation Meilisearch + Qdrant en parallèle
+    meili_success = meili_failed = qdrant_success = qdrant_failed = 0
 
-    # Indexation Qdrant
-    try:
-        with get_qdrant_client(QDRANT_URL) as qdrant_client:
-            points = []
-            for i, doc in enumerate(batch_docs):
-                # Hash 64 bits pour éviter les collisions (birthday paradox à ~65K chunks avec 32 bits)
-                point_id = int(hashlib.md5(doc["id"].encode()).hexdigest()[:16], 16)
-                points.append(models.PointStruct(
-                    id=point_id,
-                    vector=embeddings[i].tolist(),
-                    payload=doc
-                ))
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        f_meili = executor.submit(_index_meili, batch_docs, meili_headers)
+        f_qdrant = executor.submit(_index_qdrant, batch_docs, embeddings, qdrant_client)
 
-            qdrant_client.upsert(
-                collection_name=INDEX_NAME,
-                points=points
-            )
-            qdrant_success = len(points)
+        try:
+            meili_success = f_meili.result()
+        except Exception as e:
+            meili_failed = len(batch_docs)
+            logger.error(f"Erreur indexation Meilisearch: {e}")
 
-    except Exception as e:
-        qdrant_failed = len(batch_docs)
-        logger.error(f"Erreur indexation Qdrant: {e}")
+        try:
+            qdrant_success = f_qdrant.result()
+        except Exception as e:
+            qdrant_failed = len(batch_docs)
+            logger.error(f"Erreur indexation Qdrant: {e}")
 
     return meili_success, meili_failed, qdrant_success, qdrant_failed
