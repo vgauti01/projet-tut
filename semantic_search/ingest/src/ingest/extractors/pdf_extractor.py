@@ -42,7 +42,7 @@ class PdfExtractor(Extractor):
                 pipeline_options.do_table_structure = True
                 # RapidOCR est déjà installé avec Docling, pas de dépendance supplémentaire
                 pipeline_options.ocr_options = RapidOcrOptions(
-                    force_full_page_ocr = True,  # Force OCR sur toute la page (essentiel pour PDF-images)
+                    force_full_page_ocr=False,  # Docling détecte automatiquement les pages/régions image
                 )
 
                 self._converter = DocumentConverter(

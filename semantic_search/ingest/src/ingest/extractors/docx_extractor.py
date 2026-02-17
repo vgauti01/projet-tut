@@ -25,11 +25,22 @@ class DocxExtractor(Extractor):
         self._converter = None
 
     def _get_converter(self):
-        """Lazy loading du DocumentConverter."""
+        """Lazy loading du DocumentConverter avec OCR pour les images embarquées."""
         if self._converter is None:
             try:
-                from docling.document_converter import DocumentConverter
-                self._converter = DocumentConverter()
+                from docling.datamodel.base_models import InputFormat
+                from docling.datamodel.pipeline_options import PipelineOptions, RapidOcrOptions
+                from docling.document_converter import DocumentConverter, WordFormatOption
+
+                pipeline_options = PipelineOptions()
+                pipeline_options.do_ocr = True
+                pipeline_options.ocr_options = RapidOcrOptions()
+
+                self._converter = DocumentConverter(
+                    format_options={
+                        InputFormat.DOCX: WordFormatOption(pipeline_options=pipeline_options),
+                    }
+                )
             except ImportError as e:
                 logger.error("Docling n'est pas installé. Installez-le avec: uv add docling")
                 raise ImportError(
