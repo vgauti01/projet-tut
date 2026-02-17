@@ -4,13 +4,14 @@ import os
 import logging
 from pathlib import Path
 
-from .settings import MEILI_MASTER_KEY, DOCS_DIR
+from .settings import MEILI_MASTER_KEY, DOCS_DIR, QDRANT_URL
 from .services import (
     get_embedding_service,
     ensure_meili_index,
     ensure_qdrant_collection,
     clear_meili_index,
     clear_qdrant_collection,
+    get_qdrant_client,
 )
 from .batch_processor import extract_documents, process_batch
 
@@ -76,49 +77,51 @@ def ingest():
     total_qdrant_failed = 0
     batch_num = 0
 
-    # Traitement par batch avec générateur (économie mémoire)
-    batch_docs = []
-    for doc in extract_documents(files, docs_dir):
-        batch_docs.append(doc)
-        total_extracted += 1
+    # Client Qdrant persistant pour toute l'ingestion (une seule connexion)
+    with get_qdrant_client(QDRANT_URL) as qdrant_client:
+        # Traitement par batch avec générateur (économie mémoire)
+        batch_docs = []
+        for doc in extract_documents(files, docs_dir):
+            batch_docs.append(doc)
+            total_extracted += 1
 
-        # Traitement du batch quand il atteint la taille limite
-        if len(batch_docs) >= BATCH_SIZE:
+            # Traitement du batch quand il atteint la taille limite
+            if len(batch_docs) >= BATCH_SIZE:
+                batch_num += 1
+                logger.info(f"\nTraitement du batch {batch_num} ({len(batch_docs)} segments)...")
+
+                # Génération embeddings + indexation
+                m_success, m_failed, q_success, q_failed = process_batch(
+                    batch_docs, embedding_service, meili_headers, qdrant_client
+                )
+
+                # Mise à jour des compteurs
+                total_meili_success += m_success
+                total_meili_failed += m_failed
+                total_qdrant_success += q_success
+                total_qdrant_failed += q_failed
+
+                logger.info(f"Batch {batch_num} terminé - Meili: {m_success}/{len(batch_docs)}, Qdrant: {q_success}/{len(batch_docs)}")
+                logger.info(f"Progression globale: {total_extracted} segments extraits, {total_meili_success} indexés")
+
+                # Libération mémoire
+                batch_docs = []
+
+        # Traitement du dernier batch partiel
+        if batch_docs:
             batch_num += 1
-            logger.info(f"\nTraitement du batch {batch_num} ({len(batch_docs)} segments)...")
+            logger.info(f"\nTraitement du dernier batch {batch_num} ({len(batch_docs)} segments)...")
 
-            # Génération embeddings + indexation
             m_success, m_failed, q_success, q_failed = process_batch(
-                batch_docs, embedding_service, meili_headers
+                batch_docs, embedding_service, meili_headers, qdrant_client
             )
 
-            # Mise à jour des compteurs
             total_meili_success += m_success
             total_meili_failed += m_failed
             total_qdrant_success += q_success
             total_qdrant_failed += q_failed
 
             logger.info(f"Batch {batch_num} terminé - Meili: {m_success}/{len(batch_docs)}, Qdrant: {q_success}/{len(batch_docs)}")
-            logger.info(f"Progression globale: {total_extracted} segments extraits, {total_meili_success} indexés")
-
-            # Libération mémoire
-            batch_docs = []
-
-    # Traitement du dernier batch partiel
-    if batch_docs:
-        batch_num += 1
-        logger.info(f"\nTraitement du dernier batch {batch_num} ({len(batch_docs)} segments)...")
-
-        m_success, m_failed, q_success, q_failed = process_batch(
-            batch_docs, embedding_service, meili_headers
-        )
-
-        total_meili_success += m_success
-        total_meili_failed += m_failed
-        total_qdrant_success += q_success
-        total_qdrant_failed += q_failed
-
-        logger.info(f"Batch {batch_num} terminé - Meili: {m_success}/{len(batch_docs)}, Qdrant: {q_success}/{len(batch_docs)}")
 
     # Résumé final
     logger.info("")

@@ -1,8 +1,6 @@
 flowchart TD
     %% --- DÉFINITION DES STYLES ---
     classDef default fill:#fff,stroke:#333,stroke-width:1px;
-    
-    %% Style des nœuds
     classDef input fill:#fff3e0,stroke:#ff9800,stroke-width:2px,rx:5,ry:5,color:#ef6c00;
     classDef process fill:#e1f5fe,stroke:#039be5,stroke-width:2px,rx:5,ry:5,color:#01579b;
     classDef ai fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,rx:5,ry:5,color:#4a148c;
@@ -11,80 +9,140 @@ flowchart TD
     classDef output fill:#e8eaf6,stroke:#3949ab,stroke-width:3px,rx:10,ry:10,color:#1a237e;
     classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
 
-    %% --- BLOC 1 : INGESTION & PARSING DOCLING ---
+    %% --- BLOC 1 : INGESTION & PARSING ---
     subgraph Docling_Process [<b>📂 PHASE 1 : EXTRACTION & NORMALISATION</b>]
         direction TB
-        
-        %% Entrée
-        Start(fa:fa-file-import Réception Fichier):::input --> Router{Extension ?}:::decision
 
-        %% --- BRANCHE 1 : Documents Visuels ---
-        Router -- ".pdf, .img" --> Step1_Load[fa:fa-eye Chargement Docling]:::process
-        Step1_Load --> Step2_Detect["fa:fa-border-all Layout Analysis<br/><i>(Détection zones)</i>"]:::ai
-        
-        Step2_Detect --> Step3_Blocks{Type ?}:::decision
-        
-        Step3_Blocks -- Texte --> Step4_Text[fa:fa-font Extract PDF Natif]:::process
-        Step3_Blocks -- Image --> Step5_Vision[fa:fa-camera OCR RapidOCR]:::ai
-        Step3_Blocks -- Tableau --> Step6_Grid[fa:fa-table TableFormer]:::ai
-        
-        Step4_Text & Step5_Vision & Step6_Grid --> Step7_Reassemble[fa:fa-sort-amount-down Reflow &<br/>Reading Order]:::process
-        Step7_Reassemble --> Step8_Unified
-        
-        %% --- BRANCHE 2 : Office ---
-        Router -- ".docx, .pptx" --> Step1_Office[fa:fa-file-word Parsing XML/ZIP]:::process
-        Step1_Office --> Step2_Struc[fa:fa-code Parsing Structure]:::process
-        Step2_Struc --> Step3_Hier[fa:fa-heading Titres & Styles]:::process
-        Step3_Hier --> Step4_Lists[fa:fa-list Listes à puces]:::process
-        Step4_Lists --> Step5_Tables[fa:fa-table Mapping Excel]:::process
-        Step5_Tables --> Step8_Unified
-        
-        %% --- BRANCHE 3 : CSV ---
-        Router -- ".csv" --> Step1_Row[fa:fa-file-csv Parsing CSV]:::process
-        Step1_Row --> Step2_Group[fa:fa-layer-group Batching]:::process
-        Step2_Group --> Step3_Label[fa:fa-tag Clé:Valeur]:::process
-        Step3_Label --> Step9_Final
+        Start(fa:fa-folder-open Collecte Récursive<br/><i>rglob</i>):::input --> Router{Extension ?}:::decision
 
-        %% Sortie Bloc 1
-        Step8_Unified[fa:fa-cube Objet Docling]:::process --> Step_Enrich[fa:fa-plus Enrichissement Meta]:::process
-        Step_Enrich --> Step_Export[fa:fa-markdown Export Markdown]:::process
-        Step_Export --> Step9_Final
+        %% ══════════════════════════════════════════
+        %% BRANCHE PDF
+        %% ══════════════════════════════════════════
+        Router -- ".pdf" --> PDF_Load[fa:fa-eye Docling<br/>PdfFormatOption]:::process
+        PDF_Load --> PDF_Layout["fa:fa-border-all Layout Analysis<br/><i>(détection zones)</i>"]:::ai
+        PDF_Layout --> PDF_Type{Type de région ?}:::decision
+        PDF_Type -- Texte natif --> PDF_Text[fa:fa-font Extract PDF Natif]:::process
+        PDF_Type -- "Image<br/><i>(auto-détectée)</i>" --> PDF_OCR["fa:fa-camera OCR RapidOCR<br/><i>conditionnel</i>"]:::ai
+        PDF_Type -- Tableau --> PDF_Table[fa:fa-table TableFormer]:::ai
+        PDF_Text & PDF_OCR & PDF_Table --> PDF_Reflow[fa:fa-sort-amount-down Reflow &<br/>Reading Order]:::process
+        PDF_Reflow --> DoclingOut
 
-        %% Fallback
-        Step1_Load -.-> Fallback_Check{Échec ?}:::decision
-        Fallback_Check -- Oui --> Fallback_Lib[fa:fa-tools Fallback PyMuPDF]:::error
-        Fallback_Lib --> Clean_Artifacts[fa:fa-eraser Nettoyage Regex]:::process
-        Clean_Artifacts --> Step9_Final
-        
-        Step9_Final([fa:fa-check-circle Markdown Standard]):::output
+        PDF_Load -.-> PDF_Fail{Échec ?}:::decision
+        PDF_Fail -- Oui --> PDF_Fb[fa:fa-tools PyMuPDF<br/>page.get_text]:::error
+        PDF_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE IMAGE
+        %% ══════════════════════════════════════════
+        Router -- ".png .jpg<br/>.tiff .bmp" --> Img_OCR["fa:fa-camera OCR RapidOCR<br/><i>force_full_page=True</i>"]:::ai
+        Img_OCR --> Img_Layout["fa:fa-border-all Layout Analysis<br/><i>(texte + tableaux)</i>"]:::ai
+        Img_Layout --> Img_Type{Contenu détecté ?}:::decision
+        Img_Type -- "Texte / Tableau" --> Img_Export[fa:fa-markdown Export Markdown]:::process
+        Img_Export --> DoclingOut
+        Img_Type -- "Aucun texte" --> Img_Empty["fa:fa-image Placeholder<br/><i>[Image sans texte détectable]</i>"]:::error
+        Img_Empty --> RawOut
+
+        Img_OCR -.-> Img_Fail{Échec ?}:::decision
+        Img_Fail -- Oui --> Img_Fb["fa:fa-tools pytesseract + PIL<br/><i>lang=eng+fra</i>"]:::error
+        Img_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE DOCX
+        %% ══════════════════════════════════════════
+        Router -- ".docx" --> DOCX_Load["fa:fa-file-word Docling<br/>WordFormatOption<br/><i>do_ocr=True</i>"]:::process
+        DOCX_Load --> DOCX_Struct[fa:fa-heading Titres & Styles]:::process
+        DOCX_Struct --> DOCX_Lists[fa:fa-list Listes à puces]:::process
+        DOCX_Lists --> DOCX_Tables[fa:fa-table Tables structurées]:::process
+        DOCX_Tables --> DOCX_ImgOcr["fa:fa-camera OCR RapidOCR<br/><i>images embarquées</i>"]:::ai
+        DOCX_ImgOcr --> DoclingOut
+
+        DOCX_Load -.-> DOCX_Fail{Échec ?}:::decision
+        DOCX_Fail -- Oui --> DOCX_Fb["fa:fa-tools python-docx<br/><i>paragraphes uniquement</i>"]:::error
+        DOCX_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE PPTX
+        %% ══════════════════════════════════════════
+        Router -- ".pptx" --> PPTX_Load["fa:fa-file-powerpoint Docling<br/>PowerpointFormatOption<br/><i>do_ocr=True</i>"]:::process
+        PPTX_Load --> PPTX_Slides[fa:fa-clone Slides & Zones de texte]:::process
+        PPTX_Slides --> PPTX_Notes[fa:fa-sticky-note Notes présentateur]:::process
+        PPTX_Notes --> PPTX_Tables[fa:fa-table Tables par slide]:::process
+        PPTX_Tables --> PPTX_ImgOcr["fa:fa-camera OCR RapidOCR<br/><i>images embarquées</i>"]:::ai
+        PPTX_ImgOcr --> DoclingOut
+
+        PPTX_Load -.-> PPTX_Fail{Échec ?}:::decision
+        PPTX_Fail -- Oui --> PPTX_Fb["fa:fa-tools python-pptx<br/><i>shapes + notes par slide</i>"]:::error
+        PPTX_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE XLSX
+        %% ══════════════════════════════════════════
+        Router -- ".xlsx" --> XLSX_Load[fa:fa-file-excel Docling<br/>DocumentConverter]:::process
+        XLSX_Load --> XLSX_Sheets[fa:fa-layer-group Feuilles de calcul]:::process
+        XLSX_Sheets --> XLSX_Headers[fa:fa-heading En-têtes & Hiérarchies]:::process
+        XLSX_Headers --> XLSX_Cells[fa:fa-th Relations cellules]:::process
+        XLSX_Cells --> DoclingOut
+
+        XLSX_Load -.-> XLSX_Fail{Échec ?}:::decision
+        XLSX_Fail -- Oui --> XLSX_Fb["fa:fa-tools openpyxl<br/><i>header: val par feuille</i>"]:::error
+        XLSX_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE HTML
+        %% ══════════════════════════════════════════
+        Router -- ".html .htm" --> HTML_Load[fa:fa-code Docling<br/>DocumentConverter]:::process
+        HTML_Load --> HTML_DOM[fa:fa-sitemap Parse DOM]:::process
+        HTML_DOM --> HTML_Struct[fa:fa-heading Sections / Titres / Paragraphes]:::process
+        HTML_Struct --> HTML_Tables[fa:fa-table Tables structurées]:::process
+        HTML_Tables --> HTML_Clean["fa:fa-eraser Nettoyage<br/><i>script / style / meta</i>"]:::process
+        HTML_Clean --> DoclingOut
+
+        HTML_Load -.-> HTML_Fail{Échec ?}:::decision
+        HTML_Fail -- Oui --> HTML_Fb["fa:fa-tools BeautifulSoup<br/><i>get_text visible uniquement</i>"]:::error
+        HTML_Fb --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE CSV
+        %% ══════════════════════════════════════════
+        Router -- ".csv" --> CSV_Read["fa:fa-file-csv csv.DictReader<br/><i>UTF-8 errors=replace</i>"]:::process
+        CSV_Read --> CSV_Batch["fa:fa-layer-group Batches 500 lignes"]:::process
+        CSV_Batch --> CSV_Format["fa:fa-tag Format clé: valeur"]:::process
+        CSV_Format --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% BRANCHE TXT / MD / RST
+        %% ══════════════════════════════════════════
+        Router -- ".txt .md .rst" --> TXT_Read["fa:fa-file-alt read_text<br/><i>UTF-8 errors=replace</i>"]:::process
+        TXT_Read --> RawOut
+
+        %% ══════════════════════════════════════════
+        %% CONVERGENCE
+        %% ══════════════════════════════════════════
+        DoclingOut["fa:fa-cube DoclingDocument"]:::process --> Enrich[fa:fa-plus Enrichissement Meta]:::process
+        Enrich --> Export[fa:fa-markdown Export Markdown]:::process
+        Export --> Step9_Final
+
+        RawOut["fa:fa-align-left Texte brut<br/><i>sans DoclingDocument</i>"]:::process --> Step9_Final
+
+        Step9_Final(["fa:fa-check-circle Markdown<br/><i>± DoclingDocument</i>"]):::output
     end
 
     %% --- BLOC 2 : CHUNKING INTELLIGENT ---
     subgraph Chunking_Process ["<b>✂️ PHASE 2 : DÉCOUPAGE (CHUNKING)</b>"]
         direction TB
-        Step9_Final --> Start_Chunking[fa:fa-search Analyse Structure]:::process
-        
-        Start_Chunking --> Split_Headers[fa:fa-heading Split par Sections<br/><i>Header #</i>]:::process
-        Split_Headers --> Check_Size{Taille > 500?}:::decision
-        
-        %% Cas simple
-        Check_Size -- Non --> Add_Chunk[Ajout au Buffer]:::process
-        Add_Chunk --> Check_Full{Buffer Full?}:::decision
-        Check_Full -- Oui --> Final_Chunk[fa:fa-puzzle-piece Chunk Candidat]:::process
+        Step9_Final --> Check_Docling{DoclingDocument<br/>disponible ?}:::decision
 
-        %% Cas complexe
-        Check_Size -- Oui --> Recursive_Split[fa:fa-cut Split Récursif<br/><i>Paragraphes</i>]:::process
-        Recursive_Split --> Is_Table{Tableau ?}:::decision
-        
-        Is_Table -- Oui --> Keep_Table[fa:fa-table Garder Table Entière]:::process
-        Keep_Table --> Final_Chunk
-        
-        Is_Table -- Non --> Split_Sent[fa:fa-quote-left Split Phrases]:::process
-        Split_Sent --> Final_Chunk
-        
-        Final_Chunk --> Overlap["fa:fa-clone Gestion Overlap<br/><i>(Contexte)</i>"]:::process
-        Overlap --> Gen_ID[fa:fa-fingerprint ID Unique MD5]:::ai
-        Gen_ID --> Vector_Ready([fa:fa-check-double Chunks Prêts]):::output
+        Check_Docling -- Oui --> Hybrid_Chunk["fa:fa-sitemap HybridChunker<br/><i>Docling structure-aware</i>"]:::ai
+        Hybrid_Chunk --> Contextualize["fa:fa-indent contextualize()<br/><i>Headings parents injectés</i>"]:::process
+        Contextualize --> Has_Chunks{Chunks<br/>produits ?}:::decision
+        Has_Chunks -- Oui --> Gen_ID_H[fa:fa-fingerprint ID Unique MD5]:::ai
+        Has_Chunks -- Non --> Fallback_Text
+
+        Check_Docling -- Non --> Fallback_Text["fa:fa-cut chunk_text<br/><i>Fallback récursif</i>"]:::process
+        Fallback_Text --> Clean_Text[fa:fa-eraser clean_pdf_artifacts]:::process
+        Clean_Text --> Gen_ID_H
+
+        Gen_ID_H --> Vector_Ready(["fa:fa-check-double Chunks Prêts<br/><i>+ headings metadata</i>"]):::output
     end
 
     %% --- BLOC 3 : STOCKAGE & RECHERCHE ---
@@ -92,18 +150,16 @@ flowchart TD
         direction TB
         Vector_Ready --> Batch_Queue[fa:fa-layer-group Batch Accumulator]:::process
         Batch_Queue --> Batch_Full_2{Batch Plein?}:::decision
-        
+
         Batch_Full_2 -- Oui --> Process_Batch[fa:fa-cogs Traitement]:::process
-        Process_Batch --> Call_Model[fa:fa-brain Modèle Embedding<br/><i>Text → Vector</i>]:::ai
+        Process_Batch --> Call_Model["fa:fa-brain Modèle Embedding<br/><i>Text → Vector</i>"]:::ai
         Call_Model --> Embedding[fa:fa-project-diagram Vecteurs]:::process
-        
+
         Embedding --> Dual_Write{Dispatcher}:::decision
-        
-        %% Meilisearch
+
         Dual_Write -->|Texte| Meili_Branch["fa:fa-search Meilisearch<br/><i>(Keyword Search)</i>"]:::process
         Meili_Branch --> Meili_Index[(fa:fa-database Index Meili)]:::storage
-        
-        %% Qdrant
+
         Dual_Write -->|Vecteur| Qdrant_Branch["fa:fa-rocket Qdrant<br/><i>(Semantic Search)</i>"]:::process
         Qdrant_Branch --> Qdrant_Coll[(fa:fa-database Collection Qdrant)]:::storage
 
