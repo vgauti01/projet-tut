@@ -12,7 +12,7 @@ from tqdm import tqdm
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from .settings import CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS, EMBED_MODEL, MEILI_URL, INDEX_NAME, QDRANT_URL, N_EXTRACTION_WORKERS
+from .settings import CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS, EMBED_MODEL, MEILI_URL, INDEX_NAME, QDRANT_URL, N_EXTRACTION_WORKERS, FILE_BATCH_SIZE
 from .text_utils import chunk_text, clean_pdf_artifacts
 from .extractors import get_extractor
 from .services.embedding_service import EmbeddingService
@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 # Singleton lazy pour le HybridChunker (thread-safe)
 _hybrid_chunker = None
 _hybrid_chunker_lock = threading.Lock()
+
+# Lock pour la génération d'embeddings (PyTorch n'est pas thread-safe en inférence concurrente)
+_embedding_lock = threading.Lock()
 
 
 def _get_hybrid_chunker():
@@ -121,18 +124,17 @@ def _fallback_chunk_text(
         }
 
 
-def _extract_file_chunks(file_path: Path, docs_dir: Path) -> List[Dict[str, Any]]:
+def _extract_file_chunks(file_path: Path, docs_dir: Path) -> Iterator[Dict[str, Any]]:
     """
-    Extrait et chunke un seul fichier. Retourne une liste (pas un générateur)
-    pour être compatible avec ThreadPoolExecutor.
+    Générateur qui extrait et chunke un seul fichier page par page.
+    Ne charge jamais le fichier entier en RAM.
     """
     extractor = get_extractor(file_path)
     if extractor is None:
         logger.warning(f"Pas d'extracteur pour {file_path}")
-        return []
+        return
 
     title = file_path.stem
-    chunks: List[Dict[str, Any]] = []
 
     try:
         for page in extractor.extract(file_path):
@@ -142,9 +144,9 @@ def _extract_file_chunks(file_path: Path, docs_dir: Path) -> List[Dict[str, Any]
             source_type = page.metadata.get("source_type", "unknown")
 
             if page.docling_document is not None:
-                chunks.extend(_chunk_with_hybrid_chunker(
+                yield from _chunk_with_hybrid_chunker(
                     page.docling_document, title, file_path, source_type
-                ))
+                )
             else:
                 extraction_method = page.metadata.get("extraction_method", "")
                 cleaned_text = clean_pdf_artifacts(page.text) if extraction_method.endswith("_fallback") else page.text
@@ -156,7 +158,7 @@ def _extract_file_chunks(file_path: Path, docs_dir: Path) -> List[Dict[str, Any]
                 path_hash = hashlib.md5(str(file_path).encode()).hexdigest()[:8]
 
                 for idx, chunk in enumerate(chunk_text(cleaned_text, CHUNK_SIZE, CHUNK_OVERLAP)):
-                    chunks.append({
+                    yield {
                         "id": f"{clean_filename}_{path_hash}_{page.page_number}_{idx}",
                         "title": title,
                         "path": str(file_path),
@@ -165,43 +167,96 @@ def _extract_file_chunks(file_path: Path, docs_dir: Path) -> List[Dict[str, Any]
                         "content": chunk,
                         "source_type": source_type,
                         "headings": [],
-                    })
+                    }
 
     except Exception as e:
         logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
 
-    return chunks
 
-
-def extract_documents(files: List[Path], docs_dir: Path) -> Iterator[Dict[str, Any]]:
+def _process_file(
+    file_path: Path,
+    docs_dir: Path,
+    embedding_service: EmbeddingService,
+    meili_headers: Dict[str, str],
+    qdrant_client: QdrantClient,
+) -> tuple[int, int, int, int, int]:
     """
-    Générateur qui extrait et chunke les documents en parallèle.
-    Utilise N_EXTRACTION_WORKERS threads pour traiter plusieurs fichiers simultanément.
+    Parse et indexe un seul fichier par sous-batches au fil de la génération.
+    Au plus FILE_BATCH_SIZE chunks en RAM à la fois, même pour les fichiers énormes.
 
-    Args:
-        files: Liste des fichiers à traiter
-        docs_dir: Répertoire racine des documents
-
-    Yields:
-        Dictionnaire contenant les métadonnées et le contenu d'un chunk
+    Returns:
+        Tuple (extracted, meili_success, meili_failed, qdrant_success, qdrant_failed)
     """
-    logger.info(f"Extraction avec {N_EXTRACTION_WORKERS} workers parallèles")
+    total_extracted = total_m_success = total_m_failed = total_q_success = total_q_failed = 0
+
+    batch: List[Dict[str, Any]] = []
+    for chunk in _extract_file_chunks(file_path, docs_dir):
+        batch.append(chunk)
+        if len(batch) >= FILE_BATCH_SIZE:
+            m_s, m_f, q_s, q_f = process_batch(batch, embedding_service, meili_headers, qdrant_client)
+            total_extracted += len(batch)
+            total_m_success += m_s
+            total_m_failed += m_f
+            total_q_success += q_s
+            total_q_failed += q_f
+            batch = []
+
+    if batch:
+        m_s, m_f, q_s, q_f = process_batch(batch, embedding_service, meili_headers, qdrant_client)
+        total_extracted += len(batch)
+        total_m_success += m_s
+        total_m_failed += m_f
+        total_q_success += q_s
+        total_q_failed += q_f
+
+    return total_extracted, total_m_success, total_m_failed, total_q_success, total_q_failed
+
+
+def process_files_parallel(
+    files: List[Path],
+    docs_dir: Path,
+    embedding_service: EmbeddingService,
+    meili_headers: Dict[str, str],
+    qdrant_client: QdrantClient,
+) -> tuple[int, int, int, int, int]:
+    """
+    Traite tous les fichiers en parallèle.
+    Chaque worker parse et indexe immédiatement son fichier — pas d'accumulation en RAM.
+
+    Returns:
+        Tuple (total_extracted, meili_success, meili_failed, qdrant_success, qdrant_failed)
+    """
+    total_extracted = total_meili_success = total_meili_failed = 0
+    total_qdrant_success = total_qdrant_failed = 0
+
+    logger.info(f"Traitement avec {N_EXTRACTION_WORKERS} workers (parse + indexation par fichier)")
 
     with ThreadPoolExecutor(max_workers=N_EXTRACTION_WORKERS) as executor:
         futures = {
-            executor.submit(_extract_file_chunks, f, docs_dir): f
+            executor.submit(
+                _process_file, f, docs_dir, embedding_service, meili_headers, qdrant_client
+            ): f
             for f in files
         }
 
-        with tqdm(total=len(files), desc="Extraction", unit="fichier") as pbar:
+        with tqdm(total=len(files), desc="Traitement", unit="fichier") as pbar:
             for future in as_completed(futures):
                 file_path = futures[future]
                 try:
-                    yield from future.result()
+                    extracted, m_s, m_f, q_s, q_f = future.result()
+                    total_extracted += extracted
+                    total_meili_success += m_s
+                    total_meili_failed += m_f
+                    total_qdrant_success += q_s
+                    total_qdrant_failed += q_f
+                    if extracted > 0:
+                        logger.info(f"{file_path.name}: {extracted} chunks → Meili {m_s}, Qdrant {q_s}")
                 except Exception as e:
-                    logger.error(f"Erreur extraction {file_path}: {e}", exc_info=True)
+                    logger.error(f"Erreur traitement {file_path}: {e}", exc_info=True)
                 finally:
                     pbar.update(1)
+
+    return total_extracted, total_meili_success, total_meili_failed, total_qdrant_success, total_qdrant_failed
 
 
 def _index_meili(batch_docs: List[Dict[str, Any]], meili_headers: Dict[str, str]) -> int:
@@ -252,9 +307,11 @@ def process_batch(
         return 0, 0, 0, 0
 
     # Génération des embeddings pour le batch (encoding asymétrique document)
+    # Lock nécessaire : PyTorch n'est pas sûr en inférence multi-thread concurrente
     try:
         contents = [doc["content"] for doc in batch_docs]
-        embeddings = embedding_service.encode_documents(contents, show_progress=False)
+        with _embedding_lock:
+            embeddings = embedding_service.encode_documents(contents, show_progress=False)
     except Exception as e:
         logger.error(f"Erreur génération embeddings pour batch: {e}", exc_info=True)
         return 0, len(batch_docs), 0, len(batch_docs)

@@ -1,6 +1,5 @@
 """Point d'entrée principal pour l'ingestion de documents."""
 
-import os
 import logging
 from pathlib import Path
 
@@ -13,14 +12,11 @@ from .services import (
     clear_qdrant_collection,
     get_qdrant_client,
 )
-from .batch_processor import extract_documents, process_batch
+from .batch_processor import process_files_parallel
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-# Configuration des batches pour optimisation mémoire
-BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "100"))
 
 
 def ingest():
@@ -62,66 +58,17 @@ def ingest():
 
     logger.info(f"Documents trouvés: {len(files)}")
 
-    # Étape 4: Extraction et indexation par batch (optimisation mémoire)
+    # Étape 4: Extraction et indexation par fichier (parse + sauvegarde immédiate)
     logger.info("")
     logger.info("=" * 60)
-    logger.info("PHASE 4: Extraction et indexation par batch")
+    logger.info("PHASE 4: Extraction et indexation")
     logger.info("=" * 60)
-    logger.info(f"Taille des batches: {BATCH_SIZE} documents")
-
-    # Compteurs globaux
-    total_extracted = 0
-    total_meili_success = 0
-    total_meili_failed = 0
-    total_qdrant_success = 0
-    total_qdrant_failed = 0
-    batch_num = 0
 
     # Client Qdrant persistant pour toute l'ingestion (une seule connexion)
     with get_qdrant_client(QDRANT_URL) as qdrant_client:
-        # Traitement par batch avec générateur (économie mémoire)
-        batch_docs = []
-        for doc in extract_documents(files, docs_dir):
-            batch_docs.append(doc)
-            total_extracted += 1
-
-            # Traitement du batch quand il atteint la taille limite
-            if len(batch_docs) >= BATCH_SIZE:
-                batch_num += 1
-                logger.info(f"\nTraitement du batch {batch_num} ({len(batch_docs)} segments)...")
-
-                # Génération embeddings + indexation
-                m_success, m_failed, q_success, q_failed = process_batch(
-                    batch_docs, embedding_service, meili_headers, qdrant_client
-                )
-
-                # Mise à jour des compteurs
-                total_meili_success += m_success
-                total_meili_failed += m_failed
-                total_qdrant_success += q_success
-                total_qdrant_failed += q_failed
-
-                logger.info(f"Batch {batch_num} terminé - Meili: {m_success}/{len(batch_docs)}, Qdrant: {q_success}/{len(batch_docs)}")
-                logger.info(f"Progression globale: {total_extracted} segments extraits, {total_meili_success} indexés")
-
-                # Libération mémoire
-                batch_docs = []
-
-        # Traitement du dernier batch partiel
-        if batch_docs:
-            batch_num += 1
-            logger.info(f"\nTraitement du dernier batch {batch_num} ({len(batch_docs)} segments)...")
-
-            m_success, m_failed, q_success, q_failed = process_batch(
-                batch_docs, embedding_service, meili_headers, qdrant_client
-            )
-
-            total_meili_success += m_success
-            total_meili_failed += m_failed
-            total_qdrant_success += q_success
-            total_qdrant_failed += q_failed
-
-            logger.info(f"Batch {batch_num} terminé - Meili: {m_success}/{len(batch_docs)}, Qdrant: {q_success}/{len(batch_docs)}")
+        total_extracted, total_meili_success, total_meili_failed, total_qdrant_success, total_qdrant_failed = (
+            process_files_parallel(files, docs_dir, embedding_service, meili_headers, qdrant_client)
+        )
 
     # Résumé final
     logger.info("")
@@ -129,7 +76,6 @@ def ingest():
     logger.info("RÉSUMÉ DE L'INGESTION")
     logger.info("=" * 60)
     logger.info(f"Total segments extraits: {total_extracted}")
-    logger.info(f"Nombre de batches traités: {batch_num}")
     logger.info(f"Meilisearch: {total_meili_success} indexés, {total_meili_failed} échecs")
     logger.info(f"Qdrant: {total_qdrant_success} indexés, {total_qdrant_failed} échecs")
 
