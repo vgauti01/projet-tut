@@ -12,3 +12,4 @@ CHUNK_MAX_TOKENS = int(os.getenv("CHUNK_MAX_TOKENS", "512"))
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "google/embeddinggemma-300m")
 FILE_BATCH_SIZE = int(os.getenv("FILE_BATCH_SIZE", "200"))  # chunks max envoyés par batch à l'indexation
+PDF_OCR_PAGE_CHUNK = int(os.getenv("PDF_OCR_PAGE_CHUNK", "10"))  # pages par appel Docling pour PDF scannés
