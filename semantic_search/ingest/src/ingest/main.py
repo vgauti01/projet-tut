@@ -3,7 +3,11 @@
 import logging
 from pathlib import Path
 
-from .settings import MEILI_MASTER_KEY, DOCS_DIR, QDRANT_URL
+from .settings import (
+    MEILI_MASTER_KEY, DOCS_DIR, QDRANT_URL, MEILI_URL, INDEX_NAME,
+    EMBED_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_MAX_TOKENS,
+    FILE_BATCH_SIZE, PDF_OCR_ENABLED, PDF_OCR_PAGE_CHUNK,
+)
 from .services import (
     get_embedding_service,
     ensure_meili_index,
@@ -21,6 +25,19 @@ logger = logging.getLogger(__name__)
 
 def ingest():
     """Lance le processus d'ingestion des documents, incluant l'indexation dans Meilisearch et Qdrant."""
+
+    logger.info("=" * 60)
+    logger.info("CONFIGURATION")
+    logger.info("=" * 60)
+    logger.info(f"  Documents      : {DOCS_DIR}")
+    logger.info(f"  Meilisearch    : {MEILI_URL}  (index: {INDEX_NAME})")
+    logger.info(f"  Qdrant         : {QDRANT_URL}  (collection: {INDEX_NAME})")
+    logger.info(f"  Modèle embed   : {EMBED_MODEL}")
+    logger.info(f"  Chunking       : {CHUNK_MAX_TOKENS} tokens max  |  {CHUNK_SIZE} chars / overlap {CHUNK_OVERLAP}")
+    logger.info(f"  Batch index    : {FILE_BATCH_SIZE} chunks")
+    logger.info(f"  PDF OCR        : {'activé' if PDF_OCR_ENABLED else 'désactivé'}")
+    if PDF_OCR_ENABLED:
+        logger.info(f"  PDF OCR chunk  : {PDF_OCR_PAGE_CHUNK} pages / tranche")
 
     # Étape 1: Vider les bases existantes pour une ingestion propre
     logger.info("=" * 60)

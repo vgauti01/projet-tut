@@ -23,33 +23,25 @@ class PdfExtractor(Extractor):
     SUPPORTED_EXTENSIONS = [".pdf"]
 
     def __init__(self):
-        self._converter = None
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
 
-    def _get_converter(self):
-        """Lazy loading du DocumentConverter avec OCR activé."""
-        if self._converter is None:
-            try:
-                from docling.datamodel.base_models import InputFormat
-                from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
-                from docling.document_converter import DocumentConverter, PdfFormatOption
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.do_ocr = PDF_OCR_ENABLED
+        pipeline_options.do_table_structure = True
+        if PDF_OCR_ENABLED:
+            pipeline_options.ocr_options = RapidOcrOptions(force_full_page_ocr=False)
 
-                pipeline_options = PdfPipelineOptions()
-                pipeline_options.do_ocr = PDF_OCR_ENABLED
-                pipeline_options.do_table_structure = True
-                if PDF_OCR_ENABLED:
-                    pipeline_options.ocr_options = RapidOcrOptions(force_full_page_ocr=False)
-
-                self._converter = DocumentConverter(
-                    format_options={
-                        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-                    }
-                )
-            except ImportError as e:
-                raise ImportError(
-                    "docling est requis pour l'extraction PDF. "
-                    "Installez-le avec: uv add docling"
-                ) from e
-        return self._converter
+        self._converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+            }
+        )
+        # Chauffe le pipeline immédiatement pour que le cache soit stable
+        # et que toutes les conversions suivantes réutilisent la même instance.
+        self._converter.initialize_pipeline(InputFormat.PDF)
+        logger.info(f"Pipeline PDF initialisée (OCR={'activé' if PDF_OCR_ENABLED else 'désactivé'})")
 
     @staticmethod
     def _is_scanned(file_path: Path) -> tuple[bool, int]:
@@ -92,9 +84,8 @@ class PdfExtractor(Extractor):
     def _extract_full(self, file_path: Path) -> Iterator[ExtractedPage]:
         """Conversion entière du PDF en une seule passe Docling."""
         try:
-            converter = self._get_converter()
             logger.info(f"Extraction PDF avec Docling: {file_path.name}")
-            result = converter.convert(str(file_path))
+            result = self._converter.convert(str(file_path))
             doc = result.document
             markdown = doc.export_to_markdown()
 
@@ -118,12 +109,10 @@ class PdfExtractor(Extractor):
         Conversion par tranches pour PDF scannés.
         Chaque tranche est convertie indépendamment ; la pipeline Docling est réutilisée.
         """
-        converter = self._get_converter()
-
         for start in range(1, page_count + 1, PDF_OCR_PAGE_CHUNK):
             end = min(start + PDF_OCR_PAGE_CHUNK - 1, page_count)
             try:
-                result = converter.convert(str(file_path), page_range=[start, end])
+                result = self._converter.convert(str(file_path), page_range=[start, end])
                 doc = result.document
                 markdown = doc.export_to_markdown()
 
