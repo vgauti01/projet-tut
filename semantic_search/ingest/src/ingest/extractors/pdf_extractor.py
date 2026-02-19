@@ -3,7 +3,7 @@ from typing import Iterator
 import logging
 
 from .base import Extractor, ExtractedPage
-from ..settings import PDF_OCR_PAGE_CHUNK
+from ..settings import PDF_OCR_PAGE_CHUNK, PDF_OCR_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,10 @@ class PdfExtractor(Extractor):
                 from docling.document_converter import DocumentConverter, PdfFormatOption
 
                 pipeline_options = PdfPipelineOptions()
-                pipeline_options.do_ocr = True
+                pipeline_options.do_ocr = PDF_OCR_ENABLED
                 pipeline_options.do_table_structure = True
-                pipeline_options.ocr_options = RapidOcrOptions(force_full_page_ocr=False)
+                if PDF_OCR_ENABLED:
+                    pipeline_options.ocr_options = RapidOcrOptions(force_full_page_ocr=False)
 
                 self._converter = DocumentConverter(
                     format_options={
