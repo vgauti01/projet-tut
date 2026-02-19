@@ -12,7 +12,7 @@ from .services import (
     clear_qdrant_collection,
     get_qdrant_client,
 )
-from .batch_processor import process_files_parallel
+from .batch_processor import process_files
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -67,7 +67,7 @@ def ingest():
     # Client Qdrant persistant pour toute l'ingestion (une seule connexion)
     with get_qdrant_client(QDRANT_URL) as qdrant_client:
         total_extracted, total_meili_success, total_meili_failed, total_qdrant_success, total_qdrant_failed = (
-            process_files_parallel(files, docs_dir, embedding_service, meili_headers, qdrant_client)
+            process_files(files, docs_dir, embedding_service, meili_headers, qdrant_client)
         )
 
     # Résumé final

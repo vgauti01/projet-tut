@@ -11,5 +11,4 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
 CHUNK_MAX_TOKENS = int(os.getenv("CHUNK_MAX_TOKENS", "512"))
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "google/embeddinggemma-300m")
-N_EXTRACTION_WORKERS = int(os.getenv("N_EXTRACTION_WORKERS", "2"))
-FILE_BATCH_SIZE = int(os.getenv("FILE_BATCH_SIZE", "200"))  # chunks max en RAM par fichier
+FILE_BATCH_SIZE = int(os.getenv("FILE_BATCH_SIZE", "200"))  # chunks max envoyés par batch à l'indexation

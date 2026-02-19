@@ -9,16 +9,8 @@ logger = logging.getLogger(__name__)
 
 class PdfExtractor(Extractor):
     """
-    Extracteur pour les fichiers PDF utilisant Docling avec OCR.
-
-    Docling offre une extraction PDF avancée :
-    - Détection automatique de la mise en page (layout)
-    - Extraction des tableaux avec structure préservée
-    - OCR activé avec force_full_page_ocr pour PDF scannés/images
-    - Préservation de l'ordre de lecture logique
-    - Backend OCR : RapidOCR (inclus avec Docling)
-
-    Fallback automatique vers PyMuPDF (fitz) si Docling échoue.
+    Extracteur PDF utilisant Docling (OCR + structure) pour une conversion complète.
+    Fallback automatique vers PyMuPDF page par page si Docling échoue.
     """
     SUPPORTED_EXTENSIONS = [".pdf"]
 
@@ -30,122 +22,71 @@ class PdfExtractor(Extractor):
         if self._converter is None:
             try:
                 from docling.datamodel.base_models import InputFormat
-                from docling.datamodel.pipeline_options import (
-                    PdfPipelineOptions,
-                    RapidOcrOptions,
-                )
+                from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
                 from docling.document_converter import DocumentConverter, PdfFormatOption
 
-                # Configuration OCR pour PDF (y compris PDF scannés / images)
                 pipeline_options = PdfPipelineOptions()
                 pipeline_options.do_ocr = True
                 pipeline_options.do_table_structure = True
-                # RapidOCR est déjà installé avec Docling, pas de dépendance supplémentaire
-                pipeline_options.ocr_options = RapidOcrOptions(
-                    force_full_page_ocr=False,  # Docling détecte automatiquement les pages/régions image
-                )
+                pipeline_options.ocr_options = RapidOcrOptions(force_full_page_ocr=False)
 
                 self._converter = DocumentConverter(
                     format_options={
-                        InputFormat.PDF: PdfFormatOption(
-                            pipeline_options=pipeline_options,
-                        )
+                        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
                     }
                 )
             except ImportError as e:
-                logger.error("Docling n'est pas installé. Installez-le avec: uv add docling")
                 raise ImportError(
                     "docling est requis pour l'extraction PDF. "
                     "Installez-le avec: uv add docling"
                 ) from e
         return self._converter
 
-    @staticmethod
-    def _get_page_count(file_path: Path) -> int:
-        """Retourne le nombre de pages du PDF via PyMuPDF (léger, sans chargement complet)."""
-        import fitz
-        with fitz.open(file_path) as doc:
-            return doc.page_count
-
     def extract(self, file_path: Path) -> Iterator[ExtractedPage]:
-        """
-        Extrait le contenu du PDF page par page pour limiter la RAM.
-        Chaque page est convertie indépendamment par Docling puis libérée.
-        Fallback vers PyMuPDF si Docling échoue sur une page.
-        """
+        """Convertit le PDF entier avec Docling, yield un unique ExtractedPage."""
         try:
-            page_count = self._get_page_count(file_path)
-        except Exception as e:
-            logger.error(f"Impossible de lire le nombre de pages de {file_path}: {e}")
-            yield from self._fallback_pymupdf_extract(file_path)
-            return
+            converter = self._get_converter()
+            logger.info(f"Extraction PDF avec Docling: {file_path.name}")
+            result = converter.convert(str(file_path))
+            doc = result.document
+            markdown = doc.export_to_markdown()
 
-        logger.info(f"Extraction PDF avec Docling page par page ({page_count} pages): {file_path.name}")
-
-        converter = self._get_converter()
-
-        for page_num in range(1, page_count + 1):
-            try:
-                result = converter.convert(
-                    str(file_path),
-                    page_ranges=[(page_num, page_num)],
-                )
-                doc = result.document
-                markdown = doc.export_to_markdown()
-
-                if not markdown or not markdown.strip():
-                    continue
-
+            if markdown and markdown.strip():
                 yield ExtractedPage(
-                    page_number=page_num,
+                    page_number=1,
                     text=markdown,
-                    metadata={
-                        "source_type": "pdf",
-                        "extraction_method": "docling",
-                    },
+                    metadata={"source_type": "pdf", "extraction_method": "docling"},
                     docling_document=doc,
                 )
+            else:
+                logger.warning(f"Aucun contenu extrait de {file_path} avec Docling")
 
-            except Exception as e:
-                logger.warning(f"Docling a échoué sur la page {page_num} de {file_path}: {e}, fallback PyMuPDF")
-                try:
-                    yield from self._fallback_pymupdf_extract(file_path, pages=[page_num - 1])
-                except Exception as fallback_error:
-                    logger.error(f"Fallback PyMuPDF échoué pour la page {page_num}: {fallback_error}")
+        except Exception as e:
+            logger.error(f"Docling a échoué pour {file_path}: {e}")
+            logger.info(f"Fallback PyMuPDF pour {file_path.name}")
+            yield from self._fallback_pymupdf(file_path)
 
-    def _fallback_pymupdf_extract(self, file_path: Path, pages: list[int] | None = None) -> Iterator[ExtractedPage]:
-        """
-        Fallback PyMuPDF. Si `pages` est fourni (indices 0-based), seules ces pages sont extraites.
-        Sinon toutes les pages sont traitées.
-        """
-        import fitz  # PyMuPDF
+    def _fallback_pymupdf(self, file_path: Path) -> Iterator[ExtractedPage]:
+        """Fallback PyMuPDF : extraction page par page."""
+        import fitz
 
-        doc = None
         try:
-            doc = fitz.open(file_path)
-            page_indices = pages if pages is not None else range(len(doc))
+            doc = fitz.open(str(file_path))
+        except Exception as e:
+            logger.error(f"Impossible d'ouvrir {file_path}: {e}")
+            return
 
-            for i in page_indices:
+        try:
+            for i, page in enumerate(doc):
                 try:
-                    text = doc[i].get_text("text")
+                    text = page.get_text("text")
                     if text.strip():
                         yield ExtractedPage(
                             page_number=i + 1,
                             text=text,
-                            metadata={
-                                "source_type": "pdf",
-                                "extraction_method": "pymupdf_fallback",
-                            },
+                            metadata={"source_type": "pdf", "extraction_method": "pymupdf_fallback"},
                         )
                 except Exception as e:
-                    logger.error(f"Erreur extraction page {i + 1} de {file_path}: {e}")
-
-        except Exception as e:
-            logger.error(f"Impossible d'ouvrir le fichier PDF {file_path}: {e}")
-
+                    logger.error(f"Erreur page {i + 1} de {file_path}: {e}")
         finally:
-            if doc is not None:
-                try:
-                    doc.close()
-                except Exception as e:
-                    logger.warning(f"Erreur fermeture PDF {file_path}: {e}")
+            doc.close()
