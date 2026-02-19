@@ -60,53 +60,74 @@ class PdfExtractor(Extractor):
                 ) from e
         return self._converter
 
+    @staticmethod
+    def _get_page_count(file_path: Path) -> int:
+        """Retourne le nombre de pages du PDF via PyMuPDF (léger, sans chargement complet)."""
+        import fitz
+        with fitz.open(file_path) as doc:
+            return doc.page_count
+
     def extract(self, file_path: Path) -> Iterator[ExtractedPage]:
-        """Extrait le contenu du fichier PDF en préservant la structure."""
+        """
+        Extrait le contenu du PDF page par page pour limiter la RAM.
+        Chaque page est convertie indépendamment par Docling puis libérée.
+        Fallback vers PyMuPDF si Docling échoue sur une page.
+        """
         try:
-            converter = self._get_converter()
-
-            logger.info(f"Extraction PDF avec Docling (OCR activé): {file_path.name}")
-            result = converter.convert(str(file_path))
-            doc = result.document
-
-            # Extraction du document complet en markdown
-            full_markdown = doc.export_to_markdown()
-
-            if not full_markdown or not full_markdown.strip():
-                logger.warning(f"Aucun contenu extrait de {file_path} avec Docling")
-                return
-
-            yield ExtractedPage(
-                page_number=1,
-                text=full_markdown,
-                metadata={
-                    "source_type": "pdf",
-                    "extraction_method": "docling",
-                },
-                docling_document=doc,
-            )
-
+            page_count = self._get_page_count(file_path)
         except Exception as e:
-            logger.error(f"Impossible d'extraire le fichier PDF {file_path} avec Docling: {e}")
-            logger.info(f"Tentative de fallback vers PyMuPDF pour {file_path}")
-            try:
-                yield from self._fallback_pymupdf_extract(file_path)
-            except Exception as fallback_error:
-                logger.error(f"Le fallback PyMuPDF a également échoué: {fallback_error}")
-                return
+            logger.error(f"Impossible de lire le nombre de pages de {file_path}: {e}")
+            yield from self._fallback_pymupdf_extract(file_path)
+            return
 
-    def _fallback_pymupdf_extract(self, file_path: Path) -> Iterator[ExtractedPage]:
-        """Méthode de fallback utilisant PyMuPDF (fitz) si Docling échoue."""
+        logger.info(f"Extraction PDF avec Docling page par page ({page_count} pages): {file_path.name}")
+
+        converter = self._get_converter()
+
+        for page_num in range(1, page_count + 1):
+            try:
+                result = converter.convert(
+                    str(file_path),
+                    page_ranges=[(page_num, page_num)],
+                )
+                doc = result.document
+                markdown = doc.export_to_markdown()
+
+                if not markdown or not markdown.strip():
+                    continue
+
+                yield ExtractedPage(
+                    page_number=page_num,
+                    text=markdown,
+                    metadata={
+                        "source_type": "pdf",
+                        "extraction_method": "docling",
+                    },
+                    docling_document=doc,
+                )
+
+            except Exception as e:
+                logger.warning(f"Docling a échoué sur la page {page_num} de {file_path}: {e}, fallback PyMuPDF")
+                try:
+                    yield from self._fallback_pymupdf_extract(file_path, pages=[page_num - 1])
+                except Exception as fallback_error:
+                    logger.error(f"Fallback PyMuPDF échoué pour la page {page_num}: {fallback_error}")
+
+    def _fallback_pymupdf_extract(self, file_path: Path, pages: list[int] | None = None) -> Iterator[ExtractedPage]:
+        """
+        Fallback PyMuPDF. Si `pages` est fourni (indices 0-based), seules ces pages sont extraites.
+        Sinon toutes les pages sont traitées.
+        """
         import fitz  # PyMuPDF
 
         doc = None
         try:
             doc = fitz.open(file_path)
+            page_indices = pages if pages is not None else range(len(doc))
 
-            for i, page in enumerate(doc):
+            for i in page_indices:
                 try:
-                    text = page.get_text("text")
-
+                    text = doc[i].get_text("text")
                     if text.strip():
                         yield ExtractedPage(
                             page_number=i + 1,
@@ -116,18 +137,15 @@ class PdfExtractor(Extractor):
                                 "extraction_method": "pymupdf_fallback",
                             },
                         )
-
                 except Exception as e:
-                    logger.error(f"Erreur lors de l'extraction de la page {i + 1} du fichier {file_path}: {e}")
-                    continue
+                    logger.error(f"Erreur extraction page {i + 1} de {file_path}: {e}")
 
         except Exception as e:
             logger.error(f"Impossible d'ouvrir le fichier PDF {file_path}: {e}")
-            return
 
         finally:
             if doc is not None:
                 try:
                     doc.close()
                 except Exception as e:
-                    logger.warning(f"Erreur lors de la fermeture du document PDF: {e}")
+                    logger.warning(f"Erreur fermeture PDF {file_path}: {e}")
